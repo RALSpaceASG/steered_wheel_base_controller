@@ -76,6 +76,8 @@
 // limitations under the License.
 
 #include <angles/angles.h>
+#include <boost/foreach.hpp>
+#include <boost/ptr_container/ptr_vector.hpp>
 #include <control_toolbox/pid.h>
 #include <controller_interface/controller_base.h>
 #include <geometry_msgs/Twist.h>
@@ -83,7 +85,8 @@
 #include <pluginlib/class_list_macros.h>
 #include <urdf/model.h>
 
-using std::auto_ptr;
+using realtime_tools::RealtimeBuffer;
+
 using std::runtime_error;
 using std::set;
 using std::string;
@@ -110,6 +113,7 @@ class Joint
 public:
   virtual ~Joint() {}
 
+  virtual void init() = 0;
   virtual void setPos(const double pos, const Duration& period) = 0;
   virtual void setVel(const double vel, const Duration& period) = 0;
 
@@ -123,6 +127,7 @@ protected:
 class PIDJoint : public Joint
 {
 public:
+  virtual void init();
   virtual void setPos(const double pos, const Duration& period);
   virtual void setVel(const double vel, const Duration& period);
 
@@ -150,8 +155,9 @@ public:
 class PosJoint : public Joint
 {
 public:
-  PosJoint(const JointHandle& handle);
+  PosJoint(const JointHandle& handle) : Joint(handle) {}
 
+  virtual void init();
   virtual void setPos(const double pos, const Duration& period);
   virtual void setVel(const double vel, const Duration& period);
 
@@ -188,6 +194,11 @@ PIDJoint::PIDJoint(const JointHandle& handle,
   }
 }
 
+void PIDJoint::init()
+{
+  pid_ctrlr_.reset();
+}
+
 void PIDJoint::setPos(const double pos, const Duration& period)
 {
   const double curr_pos = handle_.getPosition();
@@ -217,9 +228,9 @@ void PIDJoint::setVel(const double vel, const Duration& period)
   handle_.setCommand(pid_ctrlr_.computeCommand(error, period));
 }
 
-PosJoint::PosJoint(const JointHandle& handle) : Joint(handle)
+void PosJoint::init()
 {
-  pos_ = std::numeric_limits<double>::quiet_NaN();
+  pos_ = handle_.getPosition();
 }
 
 void PosJoint::setPos(const double pos, const Duration& /* period */)
@@ -230,8 +241,6 @@ void PosJoint::setPos(const double pos, const Duration& /* period */)
 
 void PosJoint::setVel(const double vel, const Duration& period)
 {
-  if (std::isnan(pos_))
-    pos_ = handle_.getPosition();
   pos_ += vel * period.toSec();
   handle_.setCommand(pos_);
 }
@@ -251,12 +260,11 @@ void addClaimedResources(hardware_interface::HardwareInterface *const hw_iface,
   hw_iface->clearClaims();
 }
 
-auto_ptr<Joint> getJoint(const string& joint_name,
-                         const NodeHandle& ctrlr_nh,
-                         const urdf::Model& urdf_model,
-                         EffortJointInterface *const eff_joint_iface,
-                         PositionJointInterface *const pos_joint_iface,
-                         VelocityJointInterface *const vel_joint_iface)
+Joint *getJoint(const string& joint_name,
+                const NodeHandle& ctrlr_nh, const urdf::Model& urdf_model,
+                EffortJointInterface *const eff_joint_iface,
+                PositionJointInterface *const pos_joint_iface,
+                VelocityJointInterface *const vel_joint_iface)
 {
   if (eff_joint_iface != NULL)
   {
@@ -283,8 +291,7 @@ auto_ptr<Joint> getJoint(const string& joint_name,
       }
 
       const NodeHandle pid_ctrlr_nh(ctrlr_nh, "pid");
-      return auto_ptr<Joint>(new EffJoint(handle, urdf_joint.get(),
-                                          pid_ctrlr_nh));
+      return new EffJoint(handle, urdf_joint.get(), pid_ctrlr_nh);
     }
   }
 
@@ -303,7 +310,7 @@ auto_ptr<Joint> getJoint(const string& joint_name,
     }
 
     if (handle_found)
-      return auto_ptr<Joint>(new PosJoint(handle));
+      return new PosJoint(handle);
   }
 
   if (vel_joint_iface != NULL)
@@ -331,8 +338,7 @@ auto_ptr<Joint> getJoint(const string& joint_name,
       }
 
       const NodeHandle pid_ctrlr_nh(ctrlr_nh, "pid");
-      return auto_ptr<Joint>(new VelJoint(handle, urdf_joint.get(),
-                                          pid_ctrlr_nh));
+      return new VelJoint(handle, urdf_joint.get(), pid_ctrlr_nh);
     }
   }
 
@@ -361,18 +367,25 @@ public:
   virtual void update(const Time& time, const Duration& period);
 
 private:
+  struct VelCmd     // Velocity command
+  {
+    double x_vel;   // X velocity component. Unit: m/s.
+    double y_vel;   // Y velocity component. Unit: m/s.
+    double yaw_vel; // Yaw velocity. Unit: rad/s.
+  };
+
   void init(EffortJointInterface *const eff_joint_iface,
             PositionJointInterface *const pos_joint_iface,
             VelocityJointInterface *const vel_joint_iface,
             NodeHandle& ctrlr_nh);
   void velCmdCB(const TwistConstPtr& vel_cmd);
 
-  // \todo
-  auto_ptr<Joint> front_steer_joint_, front_axle_joint_;
-  auto_ptr<Joint> left_steer_joint_, left_axle_joint_;
-  auto_ptr<Joint> right_steer_joint_, right_axle_joint_;
+  boost::ptr_vector<Joint> steer_joints_; // Steering joints
+  boost::ptr_vector<Joint> axle_joints_;
 
-  ros::Subscriber vel_cmd_sub_; // Velocity command subscriber
+  VelCmd vel_cmd_;                      // Velocity command
+  RealtimeBuffer<VelCmd> vel_cmd_buf_;  // Velocity command buffer
+  ros::Subscriber vel_cmd_sub_;         // Velocity command subscriber
 };
 
 bool SteeredWheelBaseController::initRequest(RobotHW *const robot_hw,
@@ -426,16 +439,25 @@ string SteeredWheelBaseController::getHardwareInterfaceType() const
 
 void SteeredWheelBaseController::starting(const Time& time)
 {
-  // \todo
-#ifdef NOTDEF
-  desired_pos_ = joint_.getPosition();
-  pid_ctrlr_.reset();
-#endif
+  vel_cmd_.x_vel = 0;
+  vel_cmd_.y_vel = 0;
+  vel_cmd_.yaw_vel = 0;
+  vel_cmd_buf_.initRT(vel_cmd_);
+
+  BOOST_FOREACH(Joint& joint, steer_joints_)
+    joint.init();
+  BOOST_FOREACH(Joint& joint, axle_joints_)
+    joint.init();
 }
 
 void SteeredWheelBaseController::update(const Time& time,
                                         const Duration& period)
 {
+  vel_cmd_ = *(vel_cmd_buf_.readFromRT());
+  const double x_vel = vel_cmd_.x_vel;
+  const double y_vel = vel_cmd_.y_vel;
+  const double yaw_vel = vel_cmd_.yaw_vel;
+
   // Control steering angles.
   // \todo
   // Control axle velocities.
@@ -444,26 +466,10 @@ void SteeredWheelBaseController::update(const Time& time,
   // Send joint commands to the hardware.
 
   // \todo
-  front_steer_joint_->setPos(0, period);
-  left_steer_joint_->setPos(0, period);
-  right_steer_joint_->setPos(0, period);
-#ifndef NOTDEF
-  front_axle_joint_->setVel(16.6821, period);
-  left_axle_joint_->setVel(16.6821, period);
-  right_axle_joint_->setVel(16.6821, period);
-#else
-  front_axle_joint_->setVel(0, period);
-  left_axle_joint_->setVel(0, period);
-  right_axle_joint_->setVel(0, period);
-#endif
-
-#ifdef NOTDEF
-  for (vector<VelJoint>::const_iterator joint = vel_joints_.begin(); joint != vel_joints_.end();
-       joint++)
-  {
-    joint->setVel(3.14);
-  }
-#endif
+  BOOST_FOREACH(Joint& joint, steer_joints_)
+    joint.setPos(0, period);
+  BOOST_FOREACH(Joint& joint, axle_joints_)
+    joint.setVel(16.6821, period);
 }
 
 void SteeredWheelBaseController::
@@ -500,26 +506,31 @@ init(EffortJointInterface *const eff_joint_iface,
   if (!urdf_model.initParam("robot_description"))
     throw runtime_error("The URDF data was not found.");
 
-  front_steer_joint_ = getJoint(front_steer_joint_name, ctrlr_nh, urdf_model,
-                                eff_joint_iface, pos_joint_iface,
-                                vel_joint_iface);
-  front_axle_joint_ = getJoint(front_axle_joint_name, ctrlr_nh, urdf_model,
-                               eff_joint_iface, pos_joint_iface,
-                               vel_joint_iface);
+  steer_joints_.push_back(getJoint(front_steer_joint_name,
+                                   ctrlr_nh, urdf_model,
+                                   eff_joint_iface, pos_joint_iface,
+                                   vel_joint_iface));
+  steer_joints_.push_back(getJoint(left_steer_joint_name,
+                                   ctrlr_nh, urdf_model,
+                                   eff_joint_iface, pos_joint_iface,
+                                   vel_joint_iface));
+  steer_joints_.push_back(getJoint(right_steer_joint_name,
+                                   ctrlr_nh, urdf_model,
+                                   eff_joint_iface, pos_joint_iface,
+                                   vel_joint_iface));
 
-  left_steer_joint_ = getJoint(left_steer_joint_name, ctrlr_nh, urdf_model,
-                               eff_joint_iface, pos_joint_iface,
-                               vel_joint_iface);
-  left_axle_joint_ = getJoint(left_axle_joint_name, ctrlr_nh, urdf_model,
-                              eff_joint_iface, pos_joint_iface,
-                              vel_joint_iface);
-
-  right_steer_joint_ = getJoint(right_steer_joint_name, ctrlr_nh, urdf_model,
-                                eff_joint_iface, pos_joint_iface,
-                                vel_joint_iface);
-  right_axle_joint_ = getJoint(right_axle_joint_name, ctrlr_nh, urdf_model,
-                               eff_joint_iface, pos_joint_iface,
-                               vel_joint_iface);
+  axle_joints_.push_back(getJoint(front_axle_joint_name,
+                                  ctrlr_nh, urdf_model,
+                                  eff_joint_iface, pos_joint_iface,
+                                  vel_joint_iface));
+  axle_joints_.push_back(getJoint(left_axle_joint_name,
+                                  ctrlr_nh, urdf_model,
+                                  eff_joint_iface, pos_joint_iface,
+                                  vel_joint_iface));
+  axle_joints_.push_back(getJoint(right_axle_joint_name,
+                                  ctrlr_nh, urdf_model,
+                                  eff_joint_iface, pos_joint_iface,
+                                  vel_joint_iface));
 
   vel_cmd_sub_ = ctrlr_nh.subscribe("cmd_vel", 1,
                                     &SteeredWheelBaseController::velCmdCB,
@@ -529,10 +540,10 @@ init(EffortJointInterface *const eff_joint_iface,
 // Velocity command callback
 void SteeredWheelBaseController::velCmdCB(const TwistConstPtr& vel_cmd)
 {
-  // \todo
-#ifdef NOTDEF
-  desired_pos_ = vel_cmd->data;
-#endif
+  vel_cmd_.x_vel = vel_cmd->linear.x;
+  vel_cmd_.y_vel = vel_cmd->linear.y;
+  vel_cmd_.yaw_vel = vel_cmd->angular.z;
+  vel_cmd_buf_.writeFromNonRT(vel_cmd_);
 }
 
 } // namespace steered_wheel_base_controller
