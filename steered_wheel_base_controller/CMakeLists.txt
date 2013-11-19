@@ -5,7 +5,7 @@ project(steered_wheel_base_controller)
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
-  roscpp
+  roscpp tf
 )
 
 ## System dependencies are found with CMake's conventions
@@ -48,9 +48,9 @@ include_directories(
 # add_dependencies(steered_wheel_base_controller_node steered_wheel_base_controller_generate_messages_cpp)
 
 ## Specify libraries to link a library or executable target against
-# target_link_libraries(steered_wheel_base_controller_node
-#   ${catkin_LIBRARIES}
-# )
+target_link_libraries(
+  ${PROJECT_NAME} ${catkin_LIBRARIES}
+)
 
 #############
 ## Install ##
