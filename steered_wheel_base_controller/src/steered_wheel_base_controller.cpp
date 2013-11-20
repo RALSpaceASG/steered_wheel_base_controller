@@ -16,23 +16,19 @@
 //         measured in radians per second.
 //
 // Parameters:
-//     ~base_frame (string, default: base_link)
-//         Frame in which cmd_vel is defined.
+//     ~wheels (sequence of mappings, default: empty)
+//         One or more steered wheels.
 //
-//     ~wheels (list, default: empty)
-//         Zero or more wheels may be specified.
+//         Key-Value Pairs:
 //
 //         steering_frame (string, default: "")
 //             steering_frame's z axis is collinear with the wheel's steering
 //             axis. Its axes are parallel to those of base_frame.
-//         minimum_steering_angle (float, default: \todo)
-//             \todo
-//         maximum_steering_angle (float, default: \todo)
-//             \todo
-//         steering_controller (string, default: "")
-//             Steering controller.
-//         axle_controller (string, default: "")
-//             Axle controller.
+// \todo
+// steering joint name
+// steering pid
+// axle joint name
+// axle pid
 //         diameter (float, default: 1.0)
 //             Wheel diameter. It must be greater than zero. Unit: meter.
 //
@@ -50,6 +46,11 @@
 //     ~yaw_deceleration_limit (float, default: -1.0)
 //         \todo
 //
+//     ~robot_description_name (string, default: robot_description)
+//         Name of a parameter on the Parameter Server. The named parameter's
+//         value is URDF data that describes the robot.
+//     ~base_frame (string, default: base_link)
+//         Frame in which cmd_vel is defined.
 //     ~cmd_vel_timeout (float, default: 0.5)
 //         If cmd_vel_timeout is greater than zero and this controller does
 //         not receive a velocity command for more than cmd_vel_timeout
@@ -74,10 +75,12 @@
 // limitations under the License.
 
 #include <angles/angles.h>
+
 #include <boost/foreach.hpp>
 #include <boost/math/special_functions/sign.hpp>
 #include <boost/numeric/ublas/vector.hpp>
-#include <boost/ptr_container/ptr_vector.hpp>
+#include <boost/shared_ptr.hpp>
+
 #include <control_toolbox/pid.h>
 #include <controller_interface/controller_base.h>
 #include <geometry_msgs/Twist.h>
@@ -106,6 +109,8 @@ using ros::Duration;
 using ros::NodeHandle;
 using ros::Time;
 
+using XmlRpc::XmlRpcValue;
+
 namespace
 {
 
@@ -124,6 +129,7 @@ public:
   void y(const double val) {vec_[1] = val;}
 
   double magnitude() const {return norm_2(vec_);}
+  // \todo Make this into a static member function?
   double dot_prod(const Vec2& vec) const {return inner_prod(vec_, vec.vec_);}
 
   Vec2 operator +(const Vec2& val) const {return Vec2(vec_ + val.vec_);}
@@ -143,16 +149,23 @@ class Joint
 {
 public:
   virtual ~Joint() {}
-
   virtual void init() = 0;
+
+  bool isValidPos(const double pos) const
+    {return pos >= lower_limit_ && pos <= upper_limit_;}
   double getPos() const {return handle_.getPosition();}
   virtual void setPos(const double pos, const Duration& period) = 0;
+
   virtual void setVel(const double vel, const Duration& period) = 0;
 
 protected:
-  Joint(const JointHandle& handle) : handle_(handle) {}
+  // \todo Make out-of-line.
+  Joint(const JointHandle& handle, const urdf::Joint *const urdf_joint) :
+    handle_(handle), lower_limit_(urdf_joint->limits->lower),
+    upper_limit_(urdf_joint->limits->upper) {}
 
   JointHandle handle_;
+  const double lower_limit_, upper_limit_;  // Unit: radian
 };
 
 // An object of class PIDJoint is a joint controlled by a PID controller.
@@ -169,8 +182,6 @@ protected:
 
 private:
   const int type_;
-  const double lower_limit_, upper_limit_;
-
   control_toolbox::Pid pid_ctrlr_;
 };
 
@@ -187,7 +198,8 @@ public:
 class PosJoint : public Joint
 {
 public:
-  PosJoint(const JointHandle& handle) : Joint(handle) {}
+  PosJoint(const JointHandle& handle, const urdf::Joint *const urdf_joint) :
+    Joint(handle, urdf_joint) {}
 
   virtual void init();
   virtual void setPos(const double pos, const Duration& period);
@@ -212,22 +224,20 @@ public:
 class Wheel
 {
 public:
-  Wheel(const double circ, const char *const steer_axle_joint_name,
+  Wheel(const double circ, const string& steer_frame,
         Joint *const steer_joint, Joint *const axle_joint);
 
-  void initPos(const tf::TransformListener& tfl, const char *const base_frame);
+  void initPos(const tf::TransformListener& tfl, const string& base_frame);
   const Vec2& getPos() const {return pos_;}
   void initJoints();
   void ctrlSteering(const double theta_desired, const Duration& period);
   void ctrlAxle(const double lin_speed, const Duration& period) const;
 
 private:
-  // \todo These should be parameters.
-  static const double THETA_MIN;
-  static const double THETA_MAX;
+  static const double ZERO_AXLE_VEL_ANG;
 
-  string steer_axle_joint_name_;  // Steering axle joint name
-  Vec2 pos_;  // Position
+  string steer_frame_;  // Steering frame
+  Vec2 pos_;            // Position
 
   boost::shared_ptr<Joint> steer_joint_;  // Steering joint
   boost::shared_ptr<Joint> axle_joint_;
@@ -238,9 +248,10 @@ private:
   double lin_to_ang_;
 };
 
-// These values are from cerberus.urdf.xacro.
-const double Wheel::THETA_MIN = 1.5 * -M_PI_2;  // Minimum steering angle
-const double Wheel::THETA_MAX = 1.5 * M_PI_2;   // Maximum steering angle
+// Wheel axle velocities vary from full velocity (|steering angle| = 0) to
+// zero velocity (|steering angle| >= ZERO_AXLE_VEL_ANG).
+// ZERO_AXLE_VEL_ANG unit: radian.
+const double Wheel::ZERO_AXLE_VEL_ANG = M_PI / 8;
 
 double hermite(const double t)
 {
@@ -255,9 +266,7 @@ PIDJoint::PIDJoint(const JointHandle& handle,
                    const urdf::Joint *const urdf_joint,
                    const NodeHandle& pid_ctrlr_nh,
                    const bool pid_ctrlr_required) :
-  Joint(handle), type_(urdf_joint->type),
-  lower_limit_(urdf_joint->limits->lower),
-  upper_limit_(urdf_joint->limits->upper)
+  Joint(handle, urdf_joint), type_(urdf_joint->type)
 {
   if (!pid_ctrlr_.init(pid_ctrlr_nh))
   {
@@ -325,25 +334,24 @@ void VelJoint::setVel(const double vel, const Duration& /* period */)
   handle_.setCommand(vel);
 }
 
-Wheel::Wheel(const double circ, const char *const steer_axle_joint_name,
+Wheel::Wheel(const double circ, const string& steer_frame,
              Joint *const steer_joint, Joint *const axle_joint) :
-  steer_axle_joint_name_(steer_axle_joint_name),
   steer_joint_(steer_joint), axle_joint_(axle_joint)
 {
-  steer_axle_joint_name_ = steer_axle_joint_name;
+  steer_frame_ = steer_frame;
+
   axle_vel_gain_ = 0;
   lin_to_ang_ = (2 * M_PI) / circ;
 }
 
-void Wheel::initPos(const tf::TransformListener& tfl,
-                    const char *const base_frame)
+void Wheel::initPos(const tf::TransformListener& tfl, const string& base_frame)
 {
   while (true)
   {
     try
     {
       tf::StampedTransform trans;
-      tfl.lookupTransform(base_frame, steer_axle_joint_name_, ros::Time(0),
+      tfl.lookupTransform(base_frame, steer_frame_, ros::Time(0),
                           trans);
       pos_ = Vec2(trans.getOrigin().x(), trans.getOrigin().y());
       break;
@@ -380,15 +388,15 @@ void Wheel::ctrlSteering(const double theta_desired, const Duration& period)
   }
 
   // Keep theta within its valid range.
-  if (theta < THETA_MIN || theta > THETA_MAX)
+  if (!steer_joint_->isValidPos(theta))
   {
     theta -= copysign(M_PI, theta);
     axle_vel_gain_ = -axle_vel_gain_;
   }
 
   steer_joint_->setPos(theta, period);
-  // \todo Static const for MI_PI / 8?
-  axle_vel_gain_ *= 1 - hermite(fabs(theta - theta_measured) / (M_PI / 8));
+  axle_vel_gain_ *= 1 - hermite(fabs(theta - theta_measured) /
+                                ZERO_AXLE_VEL_ANG);
 }
 
 // Control this wheel's axle joint.
@@ -408,6 +416,7 @@ void addClaimedResources(hardware_interface::HardwareInterface *const hw_iface,
   hw_iface->clearClaims();
 }
 
+// \todo Return shared_ptr?
 Joint *getJoint(const string& joint_name,
                 const NodeHandle& ctrlr_nh, const urdf::Model& urdf_model,
                 EffortJointInterface *const eff_joint_iface,
@@ -458,7 +467,17 @@ Joint *getJoint(const string& joint_name,
     }
 
     if (handle_found)
-      return new PosJoint(handle);
+    {
+      boost::shared_ptr<const urdf::Joint> urdf_joint =
+        urdf_model.getJoint(joint_name);
+      if (urdf_joint == NULL)
+      {
+        throw runtime_error("\"" + joint_name +
+                            "\" was not found in the URDF data.");
+      }
+
+      return new PosJoint(handle, urdf_joint.get());
+    }
   }
 
   if (vel_joint_iface != NULL)
@@ -477,7 +496,6 @@ Joint *getJoint(const string& joint_name,
 
     if (handle_found)
     {
-      // \todo scoped_ptr?
       boost::shared_ptr<const urdf::Joint> urdf_joint =
         urdf_model.getJoint(joint_name);
       if (urdf_joint == NULL)
@@ -623,7 +641,11 @@ private:
   static const double DEF_YAW_ACCEL_LIMIT;
   static const double DEF_YAW_DECEL_LIMIT;
 
-  static const Vec2 X_DIR;  // X direction
+  static const string DEF_ROBOT_DESC_NAME;
+  static const string DEF_BASE_FRAME;
+  static const double DEF_CMD_VEL_TIMEOUT;
+
+  static const Vec2 X_DIR;
 
   void init(EffortJointInterface *const eff_joint_iface,
             PositionJointInterface *const pos_joint_iface,
@@ -633,6 +655,8 @@ private:
 
   void ctrlWheels(const Vec2& lin_vel, const double yaw_vel,
                   const Duration& period);
+
+  string base_frame_;
 
   bool wheel_pos_initted_;  // Wheel positions initialized
   vector<Wheel> wheels_;
@@ -653,6 +677,8 @@ private:
   bool has_yaw_decel_limit_;
   double yaw_decel_limit_;
 
+  double cmd_vel_timeout_;  // Velocity command timeout. Unit: second.
+
   VelCmd vel_cmd_;                      // Velocity command
   RealtimeBuffer<VelCmd> vel_cmd_buf_;  // Velocity command buffer
   ros::Subscriber vel_cmd_sub_;         // Velocity command subscriber
@@ -669,7 +695,15 @@ const double SteeredWheelBaseController::DEF_YAW_SPEED_LIMIT = 1;
 const double SteeredWheelBaseController::DEF_YAW_ACCEL_LIMIT = 1;
 const double SteeredWheelBaseController::DEF_YAW_DECEL_LIMIT = -1;
 
-const Vec2 SteeredWheelBaseController::X_DIR(1, 0);
+// Default name of the robot description parameter.
+const string SteeredWheelBaseController::DEF_ROBOT_DESC_NAME =
+  "robot_description";
+// Default base frame
+const string SteeredWheelBaseController::DEF_BASE_FRAME = "base_link";
+// Default cmd_vel timeout. Unit: second.
+const double SteeredWheelBaseController::DEF_CMD_VEL_TIMEOUT = 0.5;
+
+const Vec2 SteeredWheelBaseController::X_DIR(1, 0); // X direction
 
 SteeredWheelBaseController::SteeredWheelBaseController()
 {
@@ -753,6 +787,10 @@ void SteeredWheelBaseController::update(const Time& time,
   const Vec2 lin_vel(vel_cmd_.x_vel, vel_cmd_.y_vel);
   const double inv_delta_t = 1 / delta_t;
 
+  // \todo cmd_vel timeout
+
+  // \todo Change the names of these. Make them member functions. Don't pass
+  // so many arguments.
   const Vec2 lin_vel_2 =
     enforceLimits(lin_vel, delta_t, inv_delta_t,
                   has_lin_speed_limit_, lin_speed_limit_,
@@ -775,62 +813,51 @@ init(EffortJointInterface *const eff_joint_iface,
      VelocityJointInterface *const vel_joint_iface,
      NodeHandle& ctrlr_nh)
 {
-  // \todo
+  XmlRpcValue wheel_param_list;
+  if (!ctrlr_nh.getParam("wheels", wheel_param_list))
+    throw runtime_error("No wheels were specified.");
+  if (wheel_param_list.getType() != XmlRpcValue::TypeArray)
+    throw runtime_error("The specified list of wheels is invalid.");
 
-  string front_steer_joint_name;
-  if (!ctrlr_nh.getParam("front_steering_joint_name", front_steer_joint_name))
-    throw runtime_error("Steering joint name not found.");
-  string front_axle_joint_name;
-  if (!ctrlr_nh.getParam("front_axle_joint_name", front_axle_joint_name))
-    throw runtime_error("Axle joint name not found.");
-
-  string left_steer_joint_name;
-  if (!ctrlr_nh.getParam("left_steering_joint_name", left_steer_joint_name))
-    throw runtime_error("Steering joint name not found.");
-  string left_axle_joint_name;
-  if (!ctrlr_nh.getParam("left_axle_joint_name", left_axle_joint_name))
-    throw runtime_error("Axle joint name not found.");
-
-  string right_steer_joint_name;
-  if (!ctrlr_nh.getParam("right_steering_joint_name", right_steer_joint_name))
-    throw runtime_error("Steering joint name not found.");
-  string right_axle_joint_name;
-  if (!ctrlr_nh.getParam("right_axle_joint_name", right_axle_joint_name))
-    throw runtime_error("Axle joint name not found.");
-
+  string robot_desc_name;
+  ctrlr_nh.param("robot_description_name", robot_desc_name,
+                 DEF_ROBOT_DESC_NAME);
   urdf::Model urdf_model;
-  // \todo Get the robot description string from a parameter.
-  if (!urdf_model.initParam("robot_description"))
+  if (!urdf_model.initParam(robot_desc_name))
     throw runtime_error("The URDF data was not found.");
 
-  const double circ = (2 * M_PI) * 0.254 / 2; // \todo
-  wheels_.push_back(Wheel(circ, "front_steer_axle",
-                          getJoint(front_steer_joint_name,
-                                   ctrlr_nh, urdf_model,
-                                   eff_joint_iface, pos_joint_iface,
-                                   vel_joint_iface),
-                          getJoint(front_axle_joint_name,
-                                   ctrlr_nh, urdf_model,
-                                   eff_joint_iface, pos_joint_iface,
-                                   vel_joint_iface)));
-  wheels_.push_back(Wheel(circ, "left_steer_axle",
-                          getJoint(left_steer_joint_name,
-                                   ctrlr_nh, urdf_model,
-                                   eff_joint_iface, pos_joint_iface,
-                                   vel_joint_iface),
-                          getJoint(left_axle_joint_name,
-                                   ctrlr_nh, urdf_model,
-                                   eff_joint_iface, pos_joint_iface,
-                                   vel_joint_iface)));
-  wheels_.push_back(Wheel(circ, "right_steer_axle",
-                          getJoint(right_steer_joint_name,
-                                   ctrlr_nh, urdf_model,
-                                   eff_joint_iface, pos_joint_iface,
-                                   vel_joint_iface),
-                          getJoint(right_axle_joint_name,
-                                   ctrlr_nh, urdf_model,
-                                   eff_joint_iface, pos_joint_iface,
-                                   vel_joint_iface)));
+  // \todo Make sure that the PID gain initialization works correctly.
+
+  for (int i = 0; i < wheel_param_list.size(); i++)
+  {
+    XmlRpcValue& wheel_params = wheel_param_list[i];
+    // \todo What happens if "diameter" isn't found. Needs to be set to
+    // default value. What if its type is wrong?
+    XmlRpcValue& xml_dia = wheel_params["diameter"];
+    const double dia = xml_dia;
+    if (dia <= 0)
+      ; // \todo
+    const double circ = (2 * M_PI) * dia / 2; // circumference
+
+    XmlRpcValue& xml_steer_frame = wheel_params["steering_frame"];
+    const string steer_frame = xml_steer_frame;
+
+    XmlRpcValue& xml_steer_joint_name = wheel_params["steering_joint_name"];
+    const string steer_joint_name = xml_steer_joint_name;
+
+    XmlRpcValue& xml_axle_joint_name = wheel_params["axle_joint_name"];
+    const string axle_joint_name = xml_axle_joint_name;
+
+    wheels_.push_back(Wheel(circ, steer_frame,
+                            getJoint(steer_joint_name,
+                                     ctrlr_nh, urdf_model,
+                                     eff_joint_iface, pos_joint_iface,
+                                     vel_joint_iface),
+                            getJoint(axle_joint_name,
+                                     ctrlr_nh, urdf_model,
+                                     eff_joint_iface, pos_joint_iface,
+                                     vel_joint_iface)));
+  }
 
   ctrlr_nh.param("linear_speed_limit", lin_speed_limit_, DEF_LIN_SPEED_LIMIT);
   has_lin_speed_limit_ = lin_speed_limit_ >= 0;
@@ -839,7 +866,7 @@ init(EffortJointInterface *const eff_joint_iface,
   has_lin_accel_limit_ = lin_accel_limit_ >= 0;
   ctrlr_nh.param("linear_deceleration_limit", lin_decel_limit_,
                  DEF_LIN_DECEL_LIMIT);
-  // For safety, the deceleration limit must be greater than zero.
+  // For safety, a valid deceleration limit must be greater than zero.
   has_lin_decel_limit_ = lin_decel_limit_ > 0;
 
   ctrlr_nh.param("yaw_speed_limit", yaw_speed_limit_, DEF_YAW_SPEED_LIMIT);
@@ -849,8 +876,11 @@ init(EffortJointInterface *const eff_joint_iface,
   has_yaw_accel_limit_ = yaw_accel_limit_ >= 0;
   ctrlr_nh.param("yaw_deceleration_limit", yaw_decel_limit_,
                  DEF_YAW_DECEL_LIMIT);
-  // For safety, the deceleration limit must be greater than zero.
+  // For safety, a valid deceleration limit must be greater than zero.
   has_yaw_decel_limit_ = yaw_decel_limit_ > 0;
+
+  ctrlr_nh.param("base_frame", base_frame_, DEF_BASE_FRAME);
+  ctrlr_nh.param("cmd_vel_timeout", cmd_vel_timeout_, DEF_CMD_VEL_TIMEOUT);
 
   vel_cmd_sub_ = ctrlr_nh.subscribe("cmd_vel", 1,
                                     &SteeredWheelBaseController::velCmdCB,
@@ -864,7 +894,7 @@ void SteeredWheelBaseController::velCmdCB(const TwistConstPtr& vel_cmd)
   {
     tf::TransformListener tfl;
     BOOST_FOREACH(Wheel& wheel, wheels_)
-      wheel.initPos(tfl, "base_link");  // \todo Use parameter.
+      wheel.initPos(tfl, base_frame_);
     wheel_pos_initted_ = true;
   }
 
