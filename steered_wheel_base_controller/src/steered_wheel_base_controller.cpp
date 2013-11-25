@@ -94,6 +94,8 @@ using std::set;
 using std::string;
 using std::vector;
 
+using boost::shared_ptr;
+
 using geometry_msgs::TwistConstPtr;
 
 using hardware_interface::JointHandle;
@@ -129,12 +131,11 @@ public:
   void y(const double val) {vec_[1] = val;}
 
   double magnitude() const {return norm_2(vec_);}
-  // \todo Make this into a static member function?
-  double dot_prod(const Vec2& vec) const {return inner_prod(vec_, vec.vec_);}
 
   Vec2 operator +(const Vec2& val) const {return Vec2(vec_ + val.vec_);}
   Vec2 operator -(const Vec2& val) const {return Vec2(vec_ - val.vec_);}
   Vec2 operator *(double val) const {return Vec2(vec_ * val);}
+  double operator *(const Vec2& val) const {return inner_prod(vec_, val.vec_);}
   Vec2 operator /(double val) const {return Vec2(vec_ / val);}
 
   Vec2& operator -=(const Vec2& val) {vec_ -= val.vec_; return *this;}
@@ -159,10 +160,8 @@ public:
   virtual void setVel(const double vel, const Duration& period) = 0;
 
 protected:
-  // \todo Make out-of-line.
-  Joint(const JointHandle& handle, const urdf::Joint *const urdf_joint) :
-    handle_(handle), lower_limit_(urdf_joint->limits->lower),
-    upper_limit_(urdf_joint->limits->upper) {}
+  Joint(const JointHandle& handle,
+        const shared_ptr<const urdf::Joint> urdf_joint);
 
   JointHandle handle_;
   const double lower_limit_, upper_limit_;  // Unit: radian
@@ -177,7 +176,8 @@ public:
   virtual void setVel(const double vel, const Duration& period);
 
 protected:
-  PIDJoint(const JointHandle& handle, const urdf::Joint *const urdf_joint,
+  PIDJoint(const JointHandle& handle,
+           const shared_ptr<const urdf::Joint> urdf_joint,
            const NodeHandle& pid_ctrlr_nh, const bool pid_ctrlr_required);
 
 private:
@@ -189,7 +189,8 @@ private:
 class EffJoint : public PIDJoint
 {
 public:
-  EffJoint(const JointHandle& handle, const urdf::Joint *const urdf_joint,
+  EffJoint(const JointHandle& handle,
+           const shared_ptr<const urdf::Joint> urdf_joint,
            const NodeHandle& pid_ctrlr_nh) :
     PIDJoint(handle, urdf_joint, pid_ctrlr_nh, true) {}
 };
@@ -198,7 +199,8 @@ public:
 class PosJoint : public Joint
 {
 public:
-  PosJoint(const JointHandle& handle, const urdf::Joint *const urdf_joint) :
+  PosJoint(const JointHandle& handle,
+           const shared_ptr<const urdf::Joint> urdf_joint) :
     Joint(handle, urdf_joint) {}
 
   virtual void init();
@@ -213,7 +215,8 @@ private:
 class VelJoint : public PIDJoint
 {
 public:
-  VelJoint(const JointHandle& handle, const urdf::Joint *const urdf_joint,
+  VelJoint(const JointHandle& handle,
+           const shared_ptr<const urdf::Joint> urdf_joint,
            const NodeHandle& pid_ctrlr_nh) :
     PIDJoint(handle, urdf_joint, pid_ctrlr_nh, false) {}
 
@@ -225,7 +228,8 @@ class Wheel
 {
 public:
   Wheel(const double circ, const string& steer_frame,
-        Joint *const steer_joint, Joint *const axle_joint);
+        const shared_ptr<Joint> steer_joint,
+        const shared_ptr<Joint> axle_joint);
 
   void initPos(const tf::TransformListener& tfl, const string& base_frame);
   const Vec2& getPos() const {return pos_;}
@@ -239,8 +243,8 @@ private:
   string steer_frame_;  // Steering frame
   Vec2 pos_;            // Position
 
-  boost::shared_ptr<Joint> steer_joint_;  // Steering joint
-  boost::shared_ptr<Joint> axle_joint_;
+  shared_ptr<Joint> steer_joint_; // Steering joint
+  shared_ptr<Joint> axle_joint_;
 
   double axle_vel_gain_;  // Axle velocity gain
   // lin_to_ang_ is a multiplier that converts this wheel's linear speed into
@@ -262,8 +266,16 @@ double hermite(const double t)
   return (-2 * t + 3) * t * t;  // -2t**3 + 3t**2
 }
 
+Joint::Joint(const JointHandle& handle,
+             const shared_ptr<const urdf::Joint> urdf_joint) :
+  handle_(handle), lower_limit_(urdf_joint->limits->lower),
+  upper_limit_(urdf_joint->limits->upper)
+{
+  // Do nothing.
+}
+
 PIDJoint::PIDJoint(const JointHandle& handle,
-                   const urdf::Joint *const urdf_joint,
+                   const shared_ptr<const urdf::Joint> urdf_joint,
                    const NodeHandle& pid_ctrlr_nh,
                    const bool pid_ctrlr_required) :
   Joint(handle, urdf_joint), type_(urdf_joint->type)
@@ -335,10 +347,13 @@ void VelJoint::setVel(const double vel, const Duration& /* period */)
 }
 
 Wheel::Wheel(const double circ, const string& steer_frame,
-             Joint *const steer_joint, Joint *const axle_joint) :
-  steer_joint_(steer_joint), axle_joint_(axle_joint)
+             const shared_ptr<Joint> steer_joint,
+             const shared_ptr<Joint> axle_joint)
 {
   steer_frame_ = steer_frame;
+
+  steer_joint_ = steer_joint;
+  axle_joint_ = axle_joint;
 
   axle_vel_gain_ = 0;
   lin_to_ang_ = (2 * M_PI) / circ;
@@ -416,12 +431,12 @@ void addClaimedResources(hardware_interface::HardwareInterface *const hw_iface,
   hw_iface->clearClaims();
 }
 
-// \todo Return shared_ptr?
-Joint *getJoint(const string& joint_name,
-                const NodeHandle& ctrlr_nh, const urdf::Model& urdf_model,
-                EffortJointInterface *const eff_joint_iface,
-                PositionJointInterface *const pos_joint_iface,
-                VelocityJointInterface *const vel_joint_iface)
+shared_ptr<Joint> getJoint(const string& joint_name,
+                           const NodeHandle& ctrlr_nh,
+                           const urdf::Model& urdf_model,
+                           EffortJointInterface *const eff_joint_iface,
+                           PositionJointInterface *const pos_joint_iface,
+                           VelocityJointInterface *const vel_joint_iface)
 {
   if (eff_joint_iface != NULL)
   {
@@ -439,7 +454,7 @@ Joint *getJoint(const string& joint_name,
 
     if (handle_found)
     {
-      boost::shared_ptr<const urdf::Joint> urdf_joint =
+      const shared_ptr<const urdf::Joint> urdf_joint =
         urdf_model.getJoint(joint_name);
       if (urdf_joint == NULL)
       {
@@ -448,7 +463,8 @@ Joint *getJoint(const string& joint_name,
       }
 
       const NodeHandle pid_ctrlr_nh(ctrlr_nh, "pid");
-      return new EffJoint(handle, urdf_joint.get(), pid_ctrlr_nh);
+      shared_ptr<Joint> joint(new EffJoint(handle, urdf_joint, pid_ctrlr_nh));
+      return joint;
     }
   }
 
@@ -468,7 +484,7 @@ Joint *getJoint(const string& joint_name,
 
     if (handle_found)
     {
-      boost::shared_ptr<const urdf::Joint> urdf_joint =
+      const shared_ptr<const urdf::Joint> urdf_joint =
         urdf_model.getJoint(joint_name);
       if (urdf_joint == NULL)
       {
@@ -476,7 +492,8 @@ Joint *getJoint(const string& joint_name,
                             "\" was not found in the URDF data.");
       }
 
-      return new PosJoint(handle, urdf_joint.get());
+      shared_ptr<Joint> joint(new PosJoint(handle, urdf_joint));
+      return joint;
     }
   }
 
@@ -496,7 +513,7 @@ Joint *getJoint(const string& joint_name,
 
     if (handle_found)
     {
-      boost::shared_ptr<const urdf::Joint> urdf_joint =
+      const shared_ptr<const urdf::Joint> urdf_joint =
         urdf_model.getJoint(joint_name);
       if (urdf_joint == NULL)
       {
@@ -505,7 +522,8 @@ Joint *getJoint(const string& joint_name,
       }
 
       const NodeHandle pid_ctrlr_nh(ctrlr_nh, "pid");
-      return new VelJoint(handle, urdf_joint.get(), pid_ctrlr_nh);
+      shared_ptr<Joint> joint(new VelJoint(handle, urdf_joint, pid_ctrlr_nh));
+      return joint;
     }
   }
 
@@ -570,8 +588,7 @@ Vec2 enforceLimits(const Vec2& desired_vel,
   const Vec2& last_vel_2 = *last_vel;
   Vec2 accel = (vel - last_vel_2) * inv_delta_t;
 
-  const double vel_dot_accel = last_vel_2.dot_prod(accel);
-  if (vel_dot_accel >= 0)
+  if (last_vel_2 * accel >= 0)
   {
     // Acceleration
 
@@ -918,8 +935,7 @@ void SteeredWheelBaseController::ctrlWheels(const Vec2& lin_vel,
       // Point the wheels in the same direction.
       const Vec2 dir = lin_vel / lin_speed;
       const double theta =
-        copysign(acos(dir.dot_prod(SteeredWheelBaseController::X_DIR)),
-                 dir.y());
+        copysign(acos(dir * SteeredWheelBaseController::X_DIR), dir.y());
       BOOST_FOREACH(Wheel& wheel, wheels_)
       {
         wheel.ctrlSteering(theta, period);
@@ -962,8 +978,8 @@ void SteeredWheelBaseController::ctrlWheels(const Vec2& lin_vel,
       {
         vec /= radius;
         theta =
-          copysign(acos(vec.dot_prod(SteeredWheelBaseController::X_DIR)),
-                   vec.y()) + M_PI_2;
+          copysign(acos(vec * SteeredWheelBaseController::X_DIR), vec.y()) +
+          M_PI_2;
       }
       else
       {
