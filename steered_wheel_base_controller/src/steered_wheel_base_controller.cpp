@@ -859,6 +859,7 @@ init(EffortJointInterface *const eff_joint_iface,
     XmlRpcValue& xml_steer_frame = wheel_params["steering_frame"];
     const string steer_frame = xml_steer_frame;
 
+    // \todo Change to "steering_joint".
     XmlRpcValue& xml_steer_joint_name = wheel_params["steering_joint_name"];
     const string steer_joint_name = xml_steer_joint_name;
 
