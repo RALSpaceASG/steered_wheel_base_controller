@@ -530,97 +530,6 @@ shared_ptr<Joint> getJoint(const string& joint_name,
   throw runtime_error("No handle for \"" + joint_name + "\" was found.");
 }
 
-double enforceLimits(const double desired_vel,
-                     const double delta_t, const double inv_delta_t,
-                     const bool speed_limit_exists, const double speed_limit,
-                     const bool accel_limit_exists, const double accel_limit,
-                     const bool decel_limit_exists, const double decel_limit,
-                     double *const last_vel)
-{
-  double vel = desired_vel;
-  if (speed_limit_exists)
-    vel = std::min(std::max(vel, -speed_limit), speed_limit);
-
-  const double last_vel_2 = *last_vel;
-  double accel = (vel - last_vel_2) * inv_delta_t;
-
-  const double accel_sign = boost::math::sign(accel);
-  if (boost::math::sign(last_vel_2) == accel_sign)
-  {
-    // Acceleration
-
-    if (accel_limit_exists && fabs(accel) > accel_limit)
-    {
-      accel = accel_sign * accel_limit;
-      vel = last_vel_2 + accel * delta_t;
-    }
-  }
-  else
-  {
-    // Deceleration
-
-    if (decel_limit_exists && fabs(accel) > decel_limit)
-    {
-      accel = accel_sign * decel_limit;
-      vel = last_vel_2 + accel * delta_t;
-    }
-  }
-
-  *last_vel = vel;
-  return vel;
-}
-
-Vec2 enforceLimits(const Vec2& desired_vel,
-                   const double delta_t, const double inv_delta_t,
-                   const bool speed_limit_exists, const double speed_limit,
-                   const bool accel_limit_exists, const double accel_limit,
-                   const bool decel_limit_exists, const double decel_limit,
-                   Vec2 *const last_vel)
-{
-  Vec2 vel = desired_vel;
-  if (speed_limit_exists)
-  {
-    const double vel_mag = vel.magnitude();
-    if (vel_mag > speed_limit)
-      vel = (vel / vel_mag) * speed_limit;
-  }
-
-  const Vec2& last_vel_2 = *last_vel;
-  Vec2 accel = (vel - last_vel_2) * inv_delta_t;
-
-  if (last_vel_2 * accel >= 0)
-  {
-    // Acceleration
-
-    if (accel_limit_exists)
-    {
-      const double accel_mag = accel.magnitude();
-      if (accel_mag > accel_limit)
-      {
-        accel = (accel / accel_mag) * accel_limit;
-        vel = last_vel_2 + accel * delta_t;
-      }
-    }
-  }
-  else
-  {
-    // Deceleration
-
-    if (decel_limit_exists)
-    {
-      const double accel_mag = accel.magnitude();
-      if (accel_mag > decel_limit)
-      {
-        accel = (accel / accel_mag) * decel_limit;
-        vel = last_vel_2 + accel * delta_t;
-      }
-    }
-  }
-
-  *last_vel = vel;
-  return vel;
-}
-
 } // namespace
 
 namespace steered_wheel_base_controller
@@ -670,6 +579,10 @@ private:
             NodeHandle& ctrlr_nh);
   void velCmdCB(const TwistConstPtr& vel_cmd);
 
+  Vec2 enforceLinLimits(const Vec2& desired_vel,
+                        const double delta_t, const double inv_delta_t);
+  double enforceYawLimits(const double desired_vel,
+                          const double delta_t, const double inv_delta_t);
   void ctrlWheels(const Vec2& lin_vel, const double yaw_vel,
                   const Duration& period);
 
@@ -801,27 +714,15 @@ void SteeredWheelBaseController::update(const Time& time,
     return;
 
   vel_cmd_ = *(vel_cmd_buf_.readFromRT());
-  const Vec2 lin_vel(vel_cmd_.x_vel, vel_cmd_.y_vel);
+  const Vec2 desired_lin_vel(vel_cmd_.x_vel, vel_cmd_.y_vel);
   const double inv_delta_t = 1 / delta_t;
 
   // \todo cmd_vel timeout
 
-  // \todo Change the names of these. Make them member functions. Don't pass
-  // so many arguments.
-  const Vec2 lin_vel_2 =
-    enforceLimits(lin_vel, delta_t, inv_delta_t,
-                  has_lin_speed_limit_, lin_speed_limit_,
-                  has_lin_accel_limit_, lin_accel_limit_,
-                  has_lin_decel_limit_, lin_decel_limit_,
-                  &last_lin_vel_);
-  const double yaw_vel =
-    enforceLimits(vel_cmd_.yaw_vel, delta_t, inv_delta_t,
-                  has_yaw_speed_limit_, yaw_speed_limit_,
-                  has_yaw_accel_limit_, yaw_accel_limit_,
-                  has_yaw_decel_limit_, yaw_decel_limit_,
-                  &last_yaw_vel_);
-
-  ctrlWheels(lin_vel_2, yaw_vel, period);
+  const Vec2 lin_vel = enforceLinLimits(desired_lin_vel, delta_t, inv_delta_t);
+  const double yaw_vel = enforceYawLimits(vel_cmd_.yaw_vel,
+                                          delta_t, inv_delta_t);
+  ctrlWheels(lin_vel, yaw_vel, period);
 }
 
 void SteeredWheelBaseController::
@@ -920,6 +821,90 @@ void SteeredWheelBaseController::velCmdCB(const TwistConstPtr& vel_cmd)
   vel_cmd_.y_vel = vel_cmd->linear.y;
   vel_cmd_.yaw_vel = vel_cmd->angular.z;
   vel_cmd_buf_.writeFromNonRT(vel_cmd_);
+}
+
+// Enforce linear motion limits.
+Vec2 SteeredWheelBaseController::enforceLinLimits(const Vec2& desired_vel,
+                                                  const double delta_t,
+                                                  const double inv_delta_t)
+{
+  Vec2 vel = desired_vel;
+  if (has_lin_speed_limit_)
+  {
+    const double vel_mag = vel.magnitude();
+    if (vel_mag > lin_speed_limit_)
+      vel = (vel / vel_mag) * lin_speed_limit_;
+  }
+
+  Vec2 accel = (vel - last_lin_vel_) * inv_delta_t;
+
+  if (last_lin_vel_ * accel >= 0)
+  {
+    // Acceleration
+
+    if (has_lin_accel_limit_)
+    {
+      const double accel_mag = accel.magnitude();
+      if (accel_mag > lin_accel_limit_)
+      {
+        accel = (accel / accel_mag) * lin_accel_limit_;
+        vel = last_lin_vel_ + accel * delta_t;
+      }
+    }
+  }
+  else
+  {
+    // Deceleration
+
+    if (has_lin_decel_limit_)
+    {
+      const double accel_mag = accel.magnitude();
+      if (accel_mag > lin_decel_limit_)
+      {
+        accel = (accel / accel_mag) * lin_decel_limit_;
+        vel = last_lin_vel_ + accel * delta_t;
+      }
+    }
+  }
+
+  last_lin_vel_ = vel;
+  return vel;
+}
+
+double SteeredWheelBaseController::enforceYawLimits(const double desired_vel,
+                                                    const double delta_t,
+                                                    const double inv_delta_t)
+{
+  double vel = desired_vel;
+  if (has_yaw_speed_limit_)
+    vel = std::min(std::max(vel, -yaw_speed_limit_), yaw_speed_limit_);
+
+  double accel = (vel - last_yaw_vel_) * inv_delta_t;
+
+  const double accel_sign = boost::math::sign(accel);
+  if (boost::math::sign(last_yaw_vel_) == accel_sign)
+  {
+    // Acceleration
+
+    if (has_yaw_accel_limit_ && fabs(accel) > yaw_accel_limit_)
+    {
+      accel = accel_sign * yaw_accel_limit_;
+      vel = last_yaw_vel_ + accel * delta_t;
+    }
+  }
+  else
+  {
+    // Deceleration
+
+    if (has_yaw_decel_limit_ && fabs(accel) > yaw_decel_limit_)
+    {
+      accel = accel_sign * yaw_decel_limit_;
+      vel = last_yaw_vel_ + accel * delta_t;
+    }
+  }
+
+  last_yaw_vel_ = vel;
+  return vel;
 }
 
 // Control the wheels.
