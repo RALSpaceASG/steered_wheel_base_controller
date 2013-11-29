@@ -74,6 +74,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// \todo Check pr2_odometry.cpp parameters, topics, etc.
+
 #include <angles/angles.h>
 
 #include <boost/foreach.hpp>
@@ -736,6 +738,8 @@ init(EffortJointInterface *const eff_joint_iface,
     throw runtime_error("No wheels were specified.");
   if (wheel_param_list.getType() != XmlRpcValue::TypeArray)
     throw runtime_error("The specified list of wheels is invalid.");
+  if (wheel_param_list.size() < 1)
+    throw runtime_error("No wheels were specified.");
 
   string robot_desc_name;
   ctrlr_nh.param("robot_description_name", robot_desc_name,
@@ -749,23 +753,36 @@ init(EffortJointInterface *const eff_joint_iface,
   for (int i = 0; i < wheel_param_list.size(); i++)
   {
     XmlRpcValue& wheel_params = wheel_param_list[i];
+    if (wheel_params.getType() != XmlRpcValue::TypeStruct)
+      ; // \todo
+
+    XmlRpcValue& xml_steer_frame = wheel_params["steering_frame"];
+    if (xml_steer_frame.getType() != XmlRpcValue::TypeString)
+      ; // \todo
+    const string steer_frame = xml_steer_frame;
+
+    XmlRpcValue& xml_steer_joint_name = wheel_params["steering_joint"];
+    if (xml_steer_joint_name.getType() != XmlRpcValue::TypeString)
+      ; // \todo
+    const string steer_joint_name = xml_steer_joint_name;
+
+    XmlRpcValue& xml_axle_joint_name = wheel_params["axle_joint"];
+    if (xml_axle_joint_name.getType() != XmlRpcValue::TypeString)
+      ; // \todo
+    const string axle_joint_name = xml_axle_joint_name;
+
     // \todo What happens if "diameter" isn't found. Needs to be set to
     // default value. What if its type is wrong?
     XmlRpcValue& xml_dia = wheel_params["diameter"];
+    if (xml_dia.getType() != XmlRpcValue::TypeInt &&
+        xml_dia.getType() != XmlRpcValue::TypeDouble)
+    {
+      ; // \todo
+    }
     const double dia = xml_dia;
     if (dia <= 0)
       ; // \todo
     const double circ = (2 * M_PI) * dia / 2; // circumference
-
-    XmlRpcValue& xml_steer_frame = wheel_params["steering_frame"];
-    const string steer_frame = xml_steer_frame;
-
-    // \todo Change to "steering_joint".
-    XmlRpcValue& xml_steer_joint_name = wheel_params["steering_joint_name"];
-    const string steer_joint_name = xml_steer_joint_name;
-
-    XmlRpcValue& xml_axle_joint_name = wheel_params["axle_joint_name"];
-    const string axle_joint_name = xml_axle_joint_name;
 
     wheels_.push_back(Wheel(circ, steer_frame,
                             getJoint(steer_joint_name,
