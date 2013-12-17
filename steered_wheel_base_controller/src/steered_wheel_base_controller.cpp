@@ -661,8 +661,10 @@ private:
   Eigen::MatrixX2d new_wheel_pos_;
   Affine2d odom_affine_;
 
-  double cmd_vel_timeout_;  // Velocity command timeout. Unit: second.
   VelCmd vel_cmd_;                      // Velocity command
+  bool vel_cmd_timeout_enabled_;
+  Duration vel_cmd_timeout_;            // Velocity command timeout
+  Time last_vel_cmd_time_;
   RealtimeBuffer<VelCmd> vel_cmd_buf_;  // Velocity command buffer
   ros::Subscriber vel_cmd_sub_;         // Velocity command subscriber
 
@@ -767,6 +769,7 @@ void SteeredWheelBaseController::starting(const Time& time)
   vel_cmd_.y_vel = 0;
   vel_cmd_.yaw_vel = 0;
   vel_cmd_buf_.initRT(vel_cmd_);
+  last_vel_cmd_time_ = time;
 
   last_lin_vel_ = Vector2d(0, 0);
   last_yaw_vel_ = 0;
@@ -786,18 +789,29 @@ void SteeredWheelBaseController::update(const Time& time,
   if (delta_t <= 0)
     return;
 
-  vel_cmd_ = *(vel_cmd_buf_.readFromRT());
-  const Vector2d desired_lin_vel(vel_cmd_.x_vel, vel_cmd_.y_vel);
+  Vector2d desired_lin_vel;
+  double desired_yaw_vel;
+  if (!vel_cmd_timeout_enabled_ ||
+      time - last_vel_cmd_time_ <= vel_cmd_timeout_)
+  {
+    vel_cmd_ = *(vel_cmd_buf_.readFromRT());
+    desired_lin_vel = Vector2d(vel_cmd_.x_vel, vel_cmd_.y_vel);
+    desired_yaw_vel = vel_cmd_.yaw_vel;
+  }
+  else
+  {
+    // Too much time has elapsed since the last velocity command was received.
+    // Stop the robot.
+    desired_lin_vel.setZero();
+    desired_yaw_vel = 0;
+  }
   const double inv_delta_t = 1 / delta_t;
-
-  // \todo cmd_vel timeout
 
   const Vector2d lin_vel = enforceLinLimits(desired_lin_vel,
                                             delta_t, inv_delta_t);
-  const double yaw_vel = enforceYawLimits(vel_cmd_.yaw_vel,
+  const double yaw_vel = enforceYawLimits(desired_yaw_vel,
                                           delta_t, inv_delta_t);
   ctrlWheels(lin_vel, yaw_vel, period);
-
   if (comp_odom_)
     compOdometry(time, inv_delta_t);
 }
@@ -896,7 +910,11 @@ init(EffortJointInterface *const eff_joint_iface,
   has_yaw_decel_limit_ = yaw_decel_limit_ > 0;
 
   ctrlr_nh.param("base_frame", base_frame_, DEF_BASE_FRAME);
-  ctrlr_nh.param("cmd_vel_timeout", cmd_vel_timeout_, DEF_CMD_VEL_TIMEOUT);
+  double timeout;
+  ctrlr_nh.param("cmd_vel_timeout", timeout, DEF_CMD_VEL_TIMEOUT);
+  vel_cmd_timeout_enabled_ = timeout > 0;
+  if (vel_cmd_timeout_enabled_)
+    vel_cmd_timeout_.fromSec(timeout);
 
   // Odometry
   double odom_pub_freq;
@@ -982,6 +1000,7 @@ void SteeredWheelBaseController::velCmdCB(const TwistConstPtr& vel_cmd)
   vel_cmd_.y_vel = vel_cmd->linear.y;
   vel_cmd_.yaw_vel = vel_cmd->angular.z;
   vel_cmd_buf_.writeFromNonRT(vel_cmd_);
+  last_vel_cmd_time_ = Time::now();
 }
 
 // Enforce linear motion limits.
