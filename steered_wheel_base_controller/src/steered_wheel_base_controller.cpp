@@ -15,9 +15,13 @@
 //         The angular.z field specifies the base's desired angular velocity,
 //         measured in radians per second.
 //
+// Published Topics:
+//     odom (nav_msgs/Odometry)
+//         Odometry.
+//
 // Parameters:
 //     ~wheels (sequence of mappings, default: empty)
-//         One or more steered wheels.
+//         Two or more steered wheels.
 //
 //         Key-Value Pairs:
 //
@@ -31,6 +35,8 @@
 // axle pid
 //         diameter (float, default: 1.0)
 //             Wheel diameter. It must be greater than zero. Unit: meter.
+//     ~wheel_diameter_scale (float, default: 1.0)
+//         \todo. It must be greater than zero.
 //
 //     ~linear_speed_limit (float, default: 1.0)
 //         \todo. Unit: m/s.
@@ -58,7 +64,24 @@
 //         If cmd_vel_timeout is less than or equal to zero, the command
 //         timeout is disabled.
 //
+//     ~odometry_publishing_frequency (float, default: 30.0)
+//         Odometry publishing frequency. If it is less than or equal to zero,
+//         odometry computation is disabled.  Unit: hertz.
+//     ~odometry_frame (string, default: odom)
+//         Odometry frame.
+//     ~initial_x (float, default: 0.0)
+//         X coordinate of the base's initial position in the odometry frame.
+//         Unit: meter.
+//     ~initial_y (float, default: 0.0)
+//         Y coordinate of the base's initial position in the odometry frame.
+//         Unit: meter.
+//     ~initial_yaw (float, default: 0.0)
+//         Initial orientation of the base in the odometry frame. Unit: radian.
+//
 // \todo: Services? Transforms?
+// Published Transforms: \todo
+//     <odometry_frame> to <base_frame>
+//         Specifies the base's pose in the odometry frame.
 //
 // Copyright (c) 2013 Wunderkammer Laboratory
 //
@@ -74,20 +97,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// \todo Check pr2_odometry.cpp parameters, topics, etc.
-
 #include <angles/angles.h>
 
 #include <boost/foreach.hpp>
 #include <boost/math/special_functions/sign.hpp>
-#include <boost/numeric/ublas/vector.hpp>
 #include <boost/shared_ptr.hpp>
 
 #include <control_toolbox/pid.h>
 #include <controller_interface/controller_base.h>
+
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+#include <Eigen/SVD>
+
 #include <geometry_msgs/Twist.h>
 #include <hardware_interface/joint_command_interface.h>
+#include <nav_msgs/Odometry.h>
 #include <pluginlib/class_list_macros.h>
+#include <realtime_tools/realtime_publisher.h>
 #include <tf/transform_listener.h>
 #include <urdf/model.h>
 
@@ -97,6 +124,10 @@ using std::string;
 using std::vector;
 
 using boost::shared_ptr;
+
+using Eigen::Affine2d;
+using Eigen::Matrix2d;
+using Eigen::Vector2d;
 
 using geometry_msgs::TwistConstPtr;
 
@@ -108,6 +139,7 @@ using hardware_interface::PositionJointInterface;
 using hardware_interface::VelocityJointInterface;
 
 using realtime_tools::RealtimeBuffer;
+using realtime_tools::RealtimePublisher;
 
 using ros::Duration;
 using ros::NodeHandle;
@@ -118,35 +150,10 @@ using XmlRpc::XmlRpcValue;
 namespace
 {
 
-// Two-element vector. Deriving Vec2 from
-// boost::numeric::ublas::c_vector<double, 2> does not work.
-class Vec2
+double clamp(const double val, const double min_val, const double max_val)
 {
-public:
-  Vec2() {}
-  Vec2(const double x, const double y) { vec_[0] = x; vec_[1] = y;}
-  Vec2(const boost::numeric::ublas::c_vector<double, 2>& vec) : vec_(vec) {}
-
-  double x() const {return vec_[0];}
-  double y() const {return vec_[1];}
-  void x(const double val) {vec_[0] = val;}
-  void y(const double val) {vec_[1] = val;}
-
-  double magnitude() const {return norm_2(vec_);}
-
-  Vec2 operator +(const Vec2& val) const {return Vec2(vec_ + val.vec_);}
-  Vec2 operator -(const Vec2& val) const {return Vec2(vec_ - val.vec_);}
-  Vec2 operator *(double val) const {return Vec2(vec_ * val);}
-  double operator *(const Vec2& val) const {return inner_prod(vec_, val.vec_);}
-  Vec2 operator /(double val) const {return Vec2(vec_ / val);}
-
-  Vec2& operator -=(const Vec2& val) {vec_ -= val.vec_; return *this;}
-  Vec2& operator *=(double val) {vec_ *= val; return *this;}
-  Vec2& operator /=(double val) {vec_ /= val; return *this;}
-
-private:
-  boost::numeric::ublas::c_vector<double, 2> vec_;
-};
+  return std::min(std::max(val, min_val), max_val);
+}
 
 class Joint
 {
@@ -234,7 +241,9 @@ public:
         const shared_ptr<Joint> axle_joint);
 
   void initPos(const tf::TransformListener& tfl, const string& base_frame);
-  const Vec2& getPos() const {return pos_;}
+  const Vector2d& pos() const {return pos_;}
+  Vector2d getDeltaPos();
+
   void initJoints();
   void ctrlSteering(const double theta_desired, const Duration& period);
   void ctrlAxle(const double lin_speed, const Duration& period) const;
@@ -242,16 +251,20 @@ public:
 private:
   static const double ZERO_AXLE_VEL_ANG;
 
-  string steer_frame_;  // Steering frame
-  Vec2 pos_;            // Position
+  // steer_frame is the steering frame. Its z axis is collinear with this 
+  // wheel's steering axis, and its axes are parallel to those of the base
+  // frame. pos_ is this wheel's position in the base frame.
+  string steer_frame_;
+  Vector2d pos_;
 
   shared_ptr<Joint> steer_joint_; // Steering joint
   shared_ptr<Joint> axle_joint_;
+  double theta_steer_;            // Steering joint position
+  double last_theta_axle_;        // Last axle joint position
 
+  double radius_;         // Unit: meter.
+  double inv_radius_;     // Inverse of radius_
   double axle_vel_gain_;  // Axle velocity gain
-  // lin_to_ang_ is a multiplier that converts this wheel's linear speed into
-  // the axle's angular velocity.
-  double lin_to_ang_;
 };
 
 // Wheel axle velocities vary from full velocity (|steering angle| = 0) to
@@ -356,9 +369,11 @@ Wheel::Wheel(const double circ, const string& steer_frame,
 
   steer_joint_ = steer_joint;
   axle_joint_ = axle_joint;
+  last_theta_axle_ = axle_joint_->getPos();
 
+  radius_ = circ / (2 * M_PI);
+  inv_radius_ = 1 / radius_;
   axle_vel_gain_ = 0;
-  lin_to_ang_ = (2 * M_PI) / circ;
 }
 
 void Wheel::initPos(const tf::TransformListener& tfl, const string& base_frame)
@@ -370,7 +385,7 @@ void Wheel::initPos(const tf::TransformListener& tfl, const string& base_frame)
       tf::StampedTransform trans;
       tfl.lookupTransform(base_frame, steer_frame_, ros::Time(0),
                           trans);
-      pos_ = Vec2(trans.getOrigin().x(), trans.getOrigin().y());
+      pos_ = Vector2d(trans.getOrigin().x(), trans.getOrigin().y());
       break;
     }
     catch (...)
@@ -378,6 +393,18 @@ void Wheel::initPos(const tf::TransformListener& tfl, const string& base_frame)
       // Do nothing.
     }
   }
+}
+
+// Return the difference between this wheel's current position and its
+// position when getDeltaPos() was last called. The returned vector is defined
+// in the base frame.
+Vector2d Wheel::getDeltaPos()
+{
+  const double theta_axle = axle_joint_->getPos();
+  const double delta_theta_axle = theta_axle - last_theta_axle_;
+  last_theta_axle_ = theta_axle;
+  const double vec_mag = delta_theta_axle * radius_;
+  return Vector2d(cos(theta_steer_), sin(theta_steer_)) * vec_mag;
 }
 
 void Wheel::initJoints()
@@ -390,8 +417,8 @@ void Wheel::initJoints()
 void Wheel::ctrlSteering(const double theta_desired, const Duration& period)
 {
   // Find the minimum rotation that will align the wheel with theta_desired.
-  const double theta_measured = steer_joint_->getPos();
-  const double theta_diff = fabs(theta_desired - theta_measured);
+  theta_steer_ = steer_joint_->getPos();
+  const double theta_diff = fabs(theta_desired - theta_steer_);
   double theta;
   if (theta_diff > M_PI_2)
   {
@@ -412,14 +439,14 @@ void Wheel::ctrlSteering(const double theta_desired, const Duration& period)
   }
 
   steer_joint_->setPos(theta, period);
-  axle_vel_gain_ *= 1 - hermite(fabs(theta - theta_measured) /
+  axle_vel_gain_ *= 1 - hermite(fabs(theta - theta_steer_) /
                                 ZERO_AXLE_VEL_ANG);
 }
 
 // Control this wheel's axle joint.
 void Wheel::ctrlAxle(const double lin_speed, const Duration& period) const
 {
-  const double ang_vel = axle_vel_gain_ * lin_to_ang_ * lin_speed;
+  const double ang_vel = axle_vel_gain_ * inv_radius_ * lin_speed;
   axle_joint_->setVel(ang_vel, period);
 }
 
@@ -561,6 +588,8 @@ private:
     double yaw_vel; // Yaw velocity. Unit: rad/s.
   };
 
+  static const double DEF_WHEEL_DIA_SCALE;
+
   static const double DEF_LIN_SPEED_LIMIT;
   static const double DEF_LIN_ACCEL_LIMIT;
   static const double DEF_LIN_DECEL_LIMIT;
@@ -573,7 +602,13 @@ private:
   static const string DEF_BASE_FRAME;
   static const double DEF_CMD_VEL_TIMEOUT;
 
-  static const Vec2 X_DIR;
+  static const double DEF_ODOM_PUB_FREQ;
+  static const string DEF_ODOM_FRAME;
+  static const double DEF_INIT_X;
+  static const double DEF_INIT_Y;
+  static const double DEF_INIT_YAW;
+
+  static const Vector2d X_DIR;
 
   void init(EffortJointInterface *const eff_joint_iface,
             PositionJointInterface *const pos_joint_iface,
@@ -581,12 +616,14 @@ private:
             NodeHandle& ctrlr_nh);
   void velCmdCB(const TwistConstPtr& vel_cmd);
 
-  Vec2 enforceLinLimits(const Vec2& desired_vel,
-                        const double delta_t, const double inv_delta_t);
+  Vector2d enforceLinLimits(const Vector2d& desired_vel,
+                            const double delta_t, const double inv_delta_t);
   double enforceYawLimits(const double desired_vel,
                           const double delta_t, const double inv_delta_t);
-  void ctrlWheels(const Vec2& lin_vel, const double yaw_vel,
+  void ctrlWheels(const Vector2d& lin_vel, const double yaw_vel,
                   const Duration& period);
+
+  void compOdometry(const Time& time, const double inv_delta_t);
 
   string base_frame_;
 
@@ -609,15 +646,31 @@ private:
   bool has_yaw_decel_limit_;
   double yaw_decel_limit_;
 
-  double cmd_vel_timeout_;  // Velocity command timeout. Unit: second.
+  // Odometry
+  bool comp_odom_;                // Compute odometry
+  ros::Duration odom_pub_period_; // Odometry publishing period
+  Affine2d odom_to_base_;         // Odometry to base frame transform
+  // Odometry publishers
+  RealtimePublisher<nav_msgs::Odometry> odom_pub_;
+  RealtimePublisher<tf::tfMessage> odom_tf_pub_;
+  double last_odom_x_, last_odom_y_, last_odom_yaw_;
+  // Most recent times at which the odometry was published.
+  ros::Time last_odom_pub_time_, last_odom_tf_pub_time_;
+  Eigen::Matrix2Xd wheel_pos_;    // Wheel positions
+  Vector2d neg_wheel_centroid_;
+  Eigen::MatrixX2d new_wheel_pos_;
+  Affine2d odom_affine_;
 
+  double cmd_vel_timeout_;  // Velocity command timeout. Unit: second.
   VelCmd vel_cmd_;                      // Velocity command
   RealtimeBuffer<VelCmd> vel_cmd_buf_;  // Velocity command buffer
   ros::Subscriber vel_cmd_sub_;         // Velocity command subscriber
 
-  Vec2 last_lin_vel_;   // Last linear velocity. Unit: m/s.
-  double last_yaw_vel_; // Last yaw velocity. Unit: rad/s.
+  Vector2d last_lin_vel_; // Last linear velocity. Unit: m/s.
+  double last_yaw_vel_;   // Last yaw velocity. Unit: rad/s.
 };
+
+const double SteeredWheelBaseController::DEF_WHEEL_DIA_SCALE = 1;
 
 const double SteeredWheelBaseController::DEF_LIN_SPEED_LIMIT = 1;
 const double SteeredWheelBaseController::DEF_LIN_ACCEL_LIMIT = 1;
@@ -635,7 +688,20 @@ const string SteeredWheelBaseController::DEF_BASE_FRAME = "base_link";
 // Default cmd_vel timeout. Unit: second.
 const double SteeredWheelBaseController::DEF_CMD_VEL_TIMEOUT = 0.5;
 
-const Vec2 SteeredWheelBaseController::X_DIR(1, 0); // X direction
+// DEF_ODOM_PUB_FREQ: Default odometry publishing frequency. Unit: hertz.
+// DEF_ODOM_FRAME: Default odometry frame
+const double SteeredWheelBaseController::DEF_ODOM_PUB_FREQ = 30.0;
+const string SteeredWheelBaseController::DEF_ODOM_FRAME = "odom";
+// DEF_INIT_X and DEF_INIT_Y: Default coordinates of the base's initial
+//     position in the odometry frame. Unit: meter.
+// DEF_INIT_YAW: Default initial orientation of the base in the odometry frame.
+//     Unit: radian.
+const double SteeredWheelBaseController::DEF_INIT_X = 0;
+const double SteeredWheelBaseController::DEF_INIT_Y = 0;
+const double SteeredWheelBaseController::DEF_INIT_YAW = 0;
+
+// X direction
+const Vector2d SteeredWheelBaseController::X_DIR = Vector2d::UnitX();
 
 SteeredWheelBaseController::SteeredWheelBaseController()
 {
@@ -694,12 +760,15 @@ string SteeredWheelBaseController::getHardwareInterfaceType() const
 
 void SteeredWheelBaseController::starting(const Time& time)
 {
+  last_odom_pub_time_ = time;
+  last_odom_tf_pub_time_ = time;
+
   vel_cmd_.x_vel = 0;
   vel_cmd_.y_vel = 0;
   vel_cmd_.yaw_vel = 0;
   vel_cmd_buf_.initRT(vel_cmd_);
 
-  last_lin_vel_ = Vec2(0, 0);
+  last_lin_vel_ = Vector2d(0, 0);
   last_yaw_vel_ = 0;
 
   BOOST_FOREACH(Wheel& wheel, wheels_)
@@ -709,6 +778,8 @@ void SteeredWheelBaseController::starting(const Time& time)
 void SteeredWheelBaseController::update(const Time& time,
                                         const Duration& period)
 {
+  // \todo This prevents odometry from being published until a command is
+  // received.
   if (!wheel_pos_initted_)
     return;
   const double delta_t = period.toSec();
@@ -716,15 +787,19 @@ void SteeredWheelBaseController::update(const Time& time,
     return;
 
   vel_cmd_ = *(vel_cmd_buf_.readFromRT());
-  const Vec2 desired_lin_vel(vel_cmd_.x_vel, vel_cmd_.y_vel);
+  const Vector2d desired_lin_vel(vel_cmd_.x_vel, vel_cmd_.y_vel);
   const double inv_delta_t = 1 / delta_t;
 
   // \todo cmd_vel timeout
 
-  const Vec2 lin_vel = enforceLinLimits(desired_lin_vel, delta_t, inv_delta_t);
+  const Vector2d lin_vel = enforceLinLimits(desired_lin_vel,
+                                            delta_t, inv_delta_t);
   const double yaw_vel = enforceYawLimits(vel_cmd_.yaw_vel,
                                           delta_t, inv_delta_t);
   ctrlWheels(lin_vel, yaw_vel, period);
+
+  if (comp_odom_)
+    compOdometry(time, inv_delta_t);
 }
 
 void SteeredWheelBaseController::
@@ -738,8 +813,8 @@ init(EffortJointInterface *const eff_joint_iface,
     throw runtime_error("No wheels were specified.");
   if (wheel_param_list.getType() != XmlRpcValue::TypeArray)
     throw runtime_error("The specified list of wheels is invalid.");
-  if (wheel_param_list.size() < 1)
-    throw runtime_error("No wheels were specified.");
+  if (wheel_param_list.size() < 2)
+    throw runtime_error("At least two wheels must be specified.");
 
   string robot_desc_name;
   ctrlr_nh.param("robot_description_name", robot_desc_name,
@@ -747,6 +822,10 @@ init(EffortJointInterface *const eff_joint_iface,
   urdf::Model urdf_model;
   if (!urdf_model.initParam(robot_desc_name))
     throw runtime_error("The URDF data was not found.");
+  double wheel_dia_scale;
+  ctrlr_nh.param("wheel_diameter_scale", wheel_dia_scale, DEF_WHEEL_DIA_SCALE);
+  if (wheel_dia_scale < 0)
+    ; // \todo
 
   // \todo Make sure that the PID gain initialization works correctly.
 
@@ -782,7 +861,8 @@ init(EffortJointInterface *const eff_joint_iface,
     const double dia = xml_dia;
     if (dia <= 0)
       ; // \todo
-    const double circ = (2 * M_PI) * dia / 2; // circumference
+    // Circumference
+    const double circ = (2 * M_PI) * (wheel_dia_scale * dia) / 2;
 
     wheels_.push_back(Wheel(circ, steer_frame,
                             getJoint(steer_joint_name,
@@ -818,6 +898,51 @@ init(EffortJointInterface *const eff_joint_iface,
   ctrlr_nh.param("base_frame", base_frame_, DEF_BASE_FRAME);
   ctrlr_nh.param("cmd_vel_timeout", cmd_vel_timeout_, DEF_CMD_VEL_TIMEOUT);
 
+  // Odometry
+  double odom_pub_freq;
+  ctrlr_nh.param("odometry_publishing_frequency", odom_pub_freq,
+                 DEF_ODOM_PUB_FREQ);
+  comp_odom_ = odom_pub_freq > 0;
+  if (comp_odom_)
+  {
+    odom_pub_period_ = ros::Duration(1 / odom_pub_freq);
+
+    string odom_frame;
+    ctrlr_nh.param("odometry_frame", odom_frame, DEF_ODOM_FRAME);
+    double init_x, init_y, init_yaw;
+    ctrlr_nh.param("initial_x", init_x, DEF_INIT_X);
+    ctrlr_nh.param("initial_y", init_y, DEF_INIT_Y);
+    ctrlr_nh.param("initial_yaw", init_yaw, DEF_INIT_YAW);
+
+    // \todo Initialize in starting()?
+    odom_to_base_.setIdentity();
+    odom_to_base_.rotate(clamp(init_yaw, -M_PI, M_PI));
+    odom_to_base_.translation() = Vector2d(init_x, init_y);
+    last_odom_x_ = odom_to_base_.translation().x();
+    last_odom_y_ = odom_to_base_.translation().y();
+    last_odom_yaw_ = atan2(odom_to_base_(1, 0), odom_to_base_(0, 0));
+    odom_affine_.setIdentity();
+
+    odom_pub_.msg_.header.frame_id = odom_frame;
+    odom_pub_.msg_.child_frame_id = base_frame_;
+    odom_pub_.msg_.pose.pose.position.z = 0;
+    odom_pub_.msg_.twist.twist.linear.z = 0;
+    odom_pub_.msg_.twist.twist.angular.x = 0;
+    odom_pub_.msg_.twist.twist.angular.y = 0;
+    odom_pub_.init(ctrlr_nh, "odom", 1);
+
+    odom_tf_pub_.msg_.transforms.resize(1);
+    geometry_msgs::TransformStamped& odom_tf_trans =
+      odom_tf_pub_.msg_.transforms[0];
+    odom_tf_trans.header.frame_id = odom_pub_.msg_.header.frame_id;
+    odom_tf_trans.child_frame_id = odom_pub_.msg_.child_frame_id;
+    odom_tf_trans.transform.translation.z = 0;
+    odom_tf_pub_.init(ctrlr_nh, "/tf", 1);
+
+    wheel_pos_.resize(2, wheels_.size());
+    new_wheel_pos_.resize(wheels_.size(), 2);
+  }
+
   vel_cmd_sub_ = ctrlr_nh.subscribe("cmd_vel", 1,
                                     &SteeredWheelBaseController::velCmdCB,
                                     this);
@@ -829,8 +954,27 @@ void SteeredWheelBaseController::velCmdCB(const TwistConstPtr& vel_cmd)
   if (!wheel_pos_initted_)
   {
     tf::TransformListener tfl;
-    BOOST_FOREACH(Wheel& wheel, wheels_)
-      wheel.initPos(tfl, base_frame_);
+    if (comp_odom_)
+    {
+      for (size_t col = 0; col < wheels_.size(); col++)
+      {
+        wheels_[col].initPos(tfl, base_frame_);
+        wheel_pos_.col(col) = wheels_[col].pos();
+      }
+    }
+    else
+    {
+      BOOST_FOREACH(Wheel& wheel, wheels_)
+        wheel.initPos(tfl, base_frame_);
+    }
+
+    if (comp_odom_)
+    {
+      const Vector2d centroid = wheel_pos_.rowwise().mean();
+      wheel_pos_.colwise() -= centroid;
+      neg_wheel_centroid_ = -centroid;
+    }
+
     wheel_pos_initted_ = true;
   }
 
@@ -841,27 +985,27 @@ void SteeredWheelBaseController::velCmdCB(const TwistConstPtr& vel_cmd)
 }
 
 // Enforce linear motion limits.
-Vec2 SteeredWheelBaseController::enforceLinLimits(const Vec2& desired_vel,
-                                                  const double delta_t,
-                                                  const double inv_delta_t)
+Vector2d SteeredWheelBaseController::
+enforceLinLimits(const Vector2d& desired_vel,
+                 const double delta_t, const double inv_delta_t)
 {
-  Vec2 vel = desired_vel;
+  Vector2d vel = desired_vel;
   if (has_lin_speed_limit_)
   {
-    const double vel_mag = vel.magnitude();
+    const double vel_mag = vel.norm();
     if (vel_mag > lin_speed_limit_)
       vel = (vel / vel_mag) * lin_speed_limit_;
   }
 
-  Vec2 accel = (vel - last_lin_vel_) * inv_delta_t;
+  Vector2d accel = (vel - last_lin_vel_) * inv_delta_t;
 
-  if (last_lin_vel_ * accel >= 0)
+  if (last_lin_vel_.dot(accel) >= 0)
   {
     // Acceleration
 
     if (has_lin_accel_limit_)
     {
-      const double accel_mag = accel.magnitude();
+      const double accel_mag = accel.norm();
       if (accel_mag > lin_accel_limit_)
       {
         accel = (accel / accel_mag) * lin_accel_limit_;
@@ -875,7 +1019,7 @@ Vec2 SteeredWheelBaseController::enforceLinLimits(const Vec2& desired_vel,
 
     if (has_lin_decel_limit_)
     {
-      const double accel_mag = accel.magnitude();
+      const double accel_mag = accel.norm();
       if (accel_mag > lin_decel_limit_)
       {
         accel = (accel / accel_mag) * lin_decel_limit_;
@@ -894,7 +1038,7 @@ double SteeredWheelBaseController::enforceYawLimits(const double desired_vel,
 {
   double vel = desired_vel;
   if (has_yaw_speed_limit_)
-    vel = std::min(std::max(vel, -yaw_speed_limit_), yaw_speed_limit_);
+    vel = clamp(vel, -yaw_speed_limit_, yaw_speed_limit_);
 
   double accel = (vel - last_yaw_vel_) * inv_delta_t;
 
@@ -925,20 +1069,20 @@ double SteeredWheelBaseController::enforceYawLimits(const double desired_vel,
 }
 
 // Control the wheels.
-void SteeredWheelBaseController::ctrlWheels(const Vec2& lin_vel,
+void SteeredWheelBaseController::ctrlWheels(const Vector2d& lin_vel,
                                             const double yaw_vel,
                                             const Duration& period)
 {
-  const double lin_speed = lin_vel.magnitude();
+  const double lin_speed = lin_vel.norm();
 
   if (yaw_vel == 0)
   {
     if (lin_speed > 0)
     {
       // Point the wheels in the same direction.
-      const Vec2 dir = lin_vel / lin_speed;
+      const Vector2d dir = lin_vel / lin_speed;
       const double theta =
-        copysign(acos(dir * SteeredWheelBaseController::X_DIR), dir.y());
+        copysign(acos(dir.dot(SteeredWheelBaseController::X_DIR)), dir.y());
       BOOST_FOREACH(Wheel& wheel, wheels_)
       {
         wheel.ctrlSteering(theta, period);
@@ -957,31 +1101,28 @@ void SteeredWheelBaseController::ctrlWheels(const Vec2& lin_vel,
     // Align the wheels so that they are tangent to circles centered
     // at "center".
 
-    Vec2 center;
+    Vector2d center;
     if (lin_speed > 0)
     {
-      const Vec2 dir = lin_vel / lin_speed;
-      center.x(-dir.y());
-      center.y(dir.x());
-      center *= lin_speed / yaw_vel;
+      const Vector2d dir = lin_vel / lin_speed;
+      center = Vector2d(-dir.y(), dir.x()) * lin_speed / yaw_vel;
     }
     else
     {
-      center.x(0);
-      center.y(0);
+      center.setZero();
     }
 
     BOOST_FOREACH(Wheel& wheel, wheels_)
     {
-      Vec2 vec = wheel.getPos();
+      Vector2d vec = wheel.pos();
       vec -= center;
-      const double radius = vec.magnitude();
+      const double radius = vec.norm();
       double theta;
       if (radius > 0)
       {
         vec /= radius;
         theta =
-          copysign(acos(vec * SteeredWheelBaseController::X_DIR), vec.y()) +
+          copysign(acos(vec.dot(SteeredWheelBaseController::X_DIR)), vec.y()) +
           M_PI_2;
       }
       else
@@ -993,6 +1134,84 @@ void SteeredWheelBaseController::ctrlWheels(const Vec2& lin_vel,
       wheel.ctrlAxle(yaw_vel * radius, period);
     }
   }
+}
+
+// Compute odometry.
+void SteeredWheelBaseController::compOdometry(const Time& time,
+                                              const double inv_delta_t)
+{
+  // Compute the rigid transform from wheel_pos_ to new_wheel_pos_.
+
+  for (size_t row = 0; row < wheels_.size(); row++)
+    new_wheel_pos_.row(row) = wheels_[row].pos() + wheels_[row].getDeltaPos();
+  const Eigen::RowVector2d new_wheel_centroid =
+    new_wheel_pos_.colwise().mean();
+  new_wheel_pos_.rowwise() -= new_wheel_centroid;
+
+  const Matrix2d h = wheel_pos_ * new_wheel_pos_;
+  const Eigen::JacobiSVD<Matrix2d> svd(h, Eigen::ComputeFullU |
+                                       Eigen::ComputeFullV);
+  Matrix2d rot = svd.matrixV() * svd.matrixU().transpose();
+  if (rot.determinant() < 0)
+    rot.col(1) *= -1;
+
+  odom_affine_.matrix().block(0, 0, 2, 2) = rot;
+  odom_affine_.translation() =
+    rot * neg_wheel_centroid_ + new_wheel_centroid.transpose();
+  odom_to_base_ = odom_to_base_ * odom_affine_;
+
+  const double odom_x = odom_to_base_.translation().x();
+  const double odom_y = odom_to_base_.translation().y();
+  const double odom_yaw = atan2(odom_to_base_(1, 0), odom_to_base_(0, 0));
+
+  // Publish the odometry.
+
+  geometry_msgs::Quaternion orientation;
+  bool orientation_comped = false;
+
+  // tf
+  if (time - last_odom_tf_pub_time_ >= odom_pub_period_ &&
+      odom_tf_pub_.trylock())
+  {
+    orientation = tf::createQuaternionMsgFromYaw(odom_yaw);
+    orientation_comped = true;
+
+    geometry_msgs::TransformStamped& odom_tf_trans =
+      odom_tf_pub_.msg_.transforms[0];
+    odom_tf_trans.header.stamp = time;
+    odom_tf_trans.transform.translation.x = odom_x;
+    odom_tf_trans.transform.translation.y = odom_y;
+    odom_tf_trans.transform.rotation = orientation;
+
+    odom_tf_pub_.unlockAndPublish();
+    last_odom_tf_pub_time_ = time;
+  }
+
+  // odom
+  if (time - last_odom_pub_time_ >= odom_pub_period_ && odom_pub_.trylock())
+  {
+    if (!orientation_comped)
+      orientation = tf::createQuaternionMsgFromYaw(odom_yaw);
+
+    odom_pub_.msg_.header.stamp = time;
+    odom_pub_.msg_.pose.pose.position.x = odom_x;
+    odom_pub_.msg_.pose.pose.position.y = odom_y;
+    odom_pub_.msg_.pose.pose.orientation = orientation;
+
+    odom_pub_.msg_.twist.twist.linear.x =
+      (odom_x - last_odom_x_) * inv_delta_t;
+    odom_pub_.msg_.twist.twist.linear.y =
+      (odom_y - last_odom_y_) * inv_delta_t;
+    odom_pub_.msg_.twist.twist.angular.z =
+      (odom_yaw - last_odom_yaw_) * inv_delta_t;
+
+    odom_pub_.unlockAndPublish();
+    last_odom_pub_time_ = time;
+  }
+
+  last_odom_x_ = odom_x;
+  last_odom_y_ = odom_y;
+  last_odom_yaw_ = odom_yaw;
 }
 
 } // namespace steered_wheel_base_controller
