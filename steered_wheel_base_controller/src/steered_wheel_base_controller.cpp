@@ -659,29 +659,30 @@ private:
   bool has_yaw_decel_limit_;
   double yaw_decel_limit_;
 
+  Vector2d last_lin_vel_; // Last linear velocity. Unit: m/s.
+  double last_yaw_vel_;   // Last yaw velocity. Unit: rad/s.
+
   // Odometry
   bool comp_odom_;                // Compute odometry
   ros::Duration odom_pub_period_; // Odometry publishing period
+  Affine2d init_odom_to_base_;    // Initial odometry to base frame transform
   Affine2d odom_to_base_;         // Odometry to base frame transform
-  // Odometry publishers
-  RealtimePublisher<nav_msgs::Odometry> odom_pub_;
-  RealtimePublisher<tf::tfMessage> odom_tf_pub_;
+  Affine2d odom_affine_;
   double last_odom_x_, last_odom_y_, last_odom_yaw_;
   // Most recent times at which the odometry was published.
   ros::Time last_odom_pub_time_, last_odom_tf_pub_time_;
   Eigen::Matrix2Xd wheel_pos_;    // Wheel positions
   Vector2d neg_wheel_centroid_;
   Eigen::MatrixX2d new_wheel_pos_;
-  Affine2d odom_affine_;
+  // Odometry publishers
+  RealtimePublisher<nav_msgs::Odometry> odom_pub_;
+  RealtimePublisher<tf::tfMessage> odom_tf_pub_;
 
   VelCmd vel_cmd_;                      // Velocity command
   bool vel_cmd_timeout_enabled_;
   Duration vel_cmd_timeout_;            // Velocity command timeout
   RealtimeBuffer<VelCmd> vel_cmd_buf_;  // Velocity command buffer
   ros::Subscriber vel_cmd_sub_;         // Velocity command subscriber
-
-  Vector2d last_lin_vel_; // Last linear velocity. Unit: m/s.
-  double last_yaw_vel_;   // Last yaw velocity. Unit: rad/s.
 };
 
 const double SteeredWheelBaseController::DEF_WHEEL_DIA_SCALE = 1;
@@ -773,20 +774,29 @@ string SteeredWheelBaseController::getHardwareInterfaceType() const
 
 void SteeredWheelBaseController::starting(const Time& time)
 {
-  last_odom_pub_time_ = time;
-  last_odom_tf_pub_time_ = time;
+  last_lin_vel_ = Vector2d(0, 0);
+  last_yaw_vel_ = 0;
+
+  BOOST_FOREACH(Wheel& wheel, wheels_)
+    wheel.initJoints();
+
+  if (comp_odom_)
+  {
+    odom_to_base_ = init_odom_to_base_;
+    odom_affine_.setIdentity();
+
+    last_odom_x_ = odom_to_base_.translation().x();
+    last_odom_y_ = odom_to_base_.translation().y();
+    last_odom_yaw_ = atan2(odom_to_base_(1, 0), odom_to_base_(0, 0));
+    last_odom_pub_time_ = time;
+    last_odom_tf_pub_time_ = time;
+  }
 
   vel_cmd_.x_vel = 0;
   vel_cmd_.y_vel = 0;
   vel_cmd_.yaw_vel = 0;
   vel_cmd_.last_vel_cmd_time = time;
   vel_cmd_buf_.initRT(vel_cmd_);
-
-  last_lin_vel_ = Vector2d(0, 0);
-  last_yaw_vel_ = 0;
-
-  BOOST_FOREACH(Wheel& wheel, wheels_)
-    wheel.initJoints();
 }
 
 void SteeredWheelBaseController::update(const Time& time,
@@ -938,22 +948,16 @@ init(EffortJointInterface *const eff_joint_iface,
   {
     odom_pub_period_ = ros::Duration(1 / odom_pub_freq);
 
-    string odom_frame;
-    ctrlr_nh.param("odometry_frame", odom_frame, DEF_ODOM_FRAME);
     double init_x, init_y, init_yaw;
     ctrlr_nh.param("initial_x", init_x, DEF_INIT_X);
     ctrlr_nh.param("initial_y", init_y, DEF_INIT_Y);
     ctrlr_nh.param("initial_yaw", init_yaw, DEF_INIT_YAW);
+    init_odom_to_base_.setIdentity();
+    init_odom_to_base_.rotate(clamp(init_yaw, -M_PI, M_PI));
+    init_odom_to_base_.translation() = Vector2d(init_x, init_y);
 
-    // \todo Initialize in starting()?
-    odom_to_base_.setIdentity();
-    odom_to_base_.rotate(clamp(init_yaw, -M_PI, M_PI));
-    odom_to_base_.translation() = Vector2d(init_x, init_y);
-    last_odom_x_ = odom_to_base_.translation().x();
-    last_odom_y_ = odom_to_base_.translation().y();
-    last_odom_yaw_ = atan2(odom_to_base_(1, 0), odom_to_base_(0, 0));
-    odom_affine_.setIdentity();
-
+    string odom_frame;
+    ctrlr_nh.param("odometry_frame", odom_frame, DEF_ODOM_FRAME);
     odom_pub_.msg_.header.frame_id = odom_frame;
     odom_pub_.msg_.child_frame_id = base_frame;
     odom_pub_.msg_.pose.pose.position.z = 0;
