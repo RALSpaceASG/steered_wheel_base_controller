@@ -25,9 +25,6 @@
 //
 //         Key-Value Pairs:
 //
-//         steering_frame (string)
-//             steering_frame's z axis is collinear with the wheel's steering
-//             axis. Its axes are parallel to those of base_frame.
 //         steering_joint (string)
 //             \todo
 //         axle_joint (string)
@@ -80,7 +77,6 @@
 //     ~initial_yaw (float, default: 0.0)
 //         Initial orientation of the base in the odometry frame. Unit: radian.
 //
-// \todo: Services? Transforms?
 // Published Transforms: \todo
 //     <odometry_frame> to <base_frame>
 //         Specifies the base's pose in the odometry frame.
@@ -114,10 +110,17 @@
 
 #include <geometry_msgs/Twist.h>
 #include <hardware_interface/joint_command_interface.h>
+
+#include <kdl/chainfksolverpos_recursive.hpp>
+#include <kdl_parser/kdl_parser.hpp>
+
 #include <nav_msgs/Odometry.h>
 #include <pluginlib/class_list_macros.h>
 #include <realtime_tools/realtime_publisher.h>
-#include <tf/transform_listener.h>
+
+#include <tf/tfMessage.h>
+#include <tf/transform_datatypes.h>
+
 #include <urdf/model.h>
 
 using std::runtime_error;
@@ -226,11 +229,11 @@ private:
 class Wheel
 {
 public:
-  Wheel(const double circ, const string& steer_frame,
+  Wheel(const KDL::Tree& tree, const double circ,
+        const string& base_frame, const string& steer_frame,
         const shared_ptr<Joint> steer_joint,
         const shared_ptr<Joint> axle_joint);
 
-  void initPos(const tf::TransformListener& tfl, const string& base_frame);
   const Vector2d& pos() const {return pos_;}
   Vector2d getDeltaPos();
 
@@ -242,11 +245,10 @@ public:
 private:
   static const double ZERO_AXLE_VEL_ANG;
 
-  // steer_frame is the steering frame. Its z axis is collinear with this 
-  // wheel's steering axis, and its axes are parallel to those of the base
-  // frame. pos_ is this wheel's position in the base frame.
-  string steer_frame_;
-  Vector2d pos_;
+  void initPos(const KDL::Tree& tree, const string& base_frame);
+
+  string steer_frame_;  // Steering frame
+  Vector2d pos_;        // Wheel's position in the base frame
 
   shared_ptr<Joint> steer_joint_; // Steering joint
   shared_ptr<Joint> axle_joint_;
@@ -350,11 +352,13 @@ void VelJoint::setVel(const double vel, const Duration& /* period */)
   handle_.setCommand(vel);
 }
 
-Wheel::Wheel(const double circ, const string& steer_frame,
+Wheel::Wheel(const KDL::Tree& tree, const double circ,
+             const string& base_frame, const string& steer_frame,
              const shared_ptr<Joint> steer_joint,
              const shared_ptr<Joint> axle_joint)
 {
   steer_frame_ = steer_frame;
+  initPos(tree, base_frame);
 
   steer_joint_ = steer_joint;
   axle_joint_ = axle_joint;
@@ -366,23 +370,30 @@ Wheel::Wheel(const double circ, const string& steer_frame,
   axle_vel_gain_ = 0;
 }
 
-void Wheel::initPos(const tf::TransformListener& tfl, const string& base_frame)
+// Initialize pos_.
+void Wheel::initPos(const KDL::Tree& tree, const string& base_frame)
 {
-  while (true)
+  KDL::Chain chain;
+  if (!tree.getChain(base_frame, steer_frame_, chain))
   {
-    try
-    {
-      tf::StampedTransform trans;
-      tfl.lookupTransform(base_frame, steer_frame_, ros::Time(0),
-                          trans);
-      pos_ = Vector2d(trans.getOrigin().x(), trans.getOrigin().y());
-      break;
-    }
-    catch (...)
-    {
-      // Do nothing.
-    }
+    throw runtime_error("No kinematic chain was found from \"" + base_frame +
+                        "\" to \"" + steer_frame_ + "\".");
   }
+
+  const unsigned int num_joints = chain.getNrOfJoints();
+  KDL::JntArray joint_positions(num_joints);
+  for (unsigned int i = 0; i < num_joints; i++)
+    joint_positions(i) = 0;
+
+  KDL::ChainFkSolverPos_recursive solver(chain);
+  KDL::Frame frame;
+  if (solver.JntToCart(joint_positions, frame) < 0)
+  {
+    throw runtime_error("The position of steering frame \"" + steer_frame_ +
+                        "\" in base frame \"" + base_frame +
+                        "\" was not found.");
+  }
+  pos_ = Vector2d(frame.p.x(), frame.p.y());
 }
 
 // Return the difference between this wheel's current position and its
@@ -587,6 +598,10 @@ private:
     double x_vel;   // X velocity component. Unit: m/s.
     double y_vel;   // Y velocity component. Unit: m/s.
     double yaw_vel; // Yaw velocity. Unit: rad/s.
+
+    // last_vel_cmd_time is the time at which the most recent velocity command
+    // was received.
+    Time last_vel_cmd_time;
   };
 
   static const double DEF_WHEEL_DIA_SCALE;
@@ -626,9 +641,6 @@ private:
 
   void compOdometry(const Time& time, const double inv_delta_t);
 
-  string base_frame_;
-
-  bool wheel_pos_initted_;  // Wheel positions initialized
   vector<Wheel> wheels_;
 
   // Linear motion limits
@@ -665,7 +677,6 @@ private:
   VelCmd vel_cmd_;                      // Velocity command
   bool vel_cmd_timeout_enabled_;
   Duration vel_cmd_timeout_;            // Velocity command timeout
-  Time last_vel_cmd_time_;
   RealtimeBuffer<VelCmd> vel_cmd_buf_;  // Velocity command buffer
   ros::Subscriber vel_cmd_sub_;         // Velocity command subscriber
 
@@ -709,7 +720,6 @@ const Vector2d SteeredWheelBaseController::X_DIR = Vector2d::UnitX();
 SteeredWheelBaseController::SteeredWheelBaseController()
 {
   state_ = CONSTRUCTED;
-  wheel_pos_initted_ = false;
 }
 
 bool SteeredWheelBaseController::initRequest(RobotHW *const robot_hw,
@@ -769,8 +779,8 @@ void SteeredWheelBaseController::starting(const Time& time)
   vel_cmd_.x_vel = 0;
   vel_cmd_.y_vel = 0;
   vel_cmd_.yaw_vel = 0;
+  vel_cmd_.last_vel_cmd_time = time;
   vel_cmd_buf_.initRT(vel_cmd_);
-  last_vel_cmd_time_ = time;
 
   last_lin_vel_ = Vector2d(0, 0);
   last_yaw_vel_ = 0;
@@ -782,20 +792,16 @@ void SteeredWheelBaseController::starting(const Time& time)
 void SteeredWheelBaseController::update(const Time& time,
                                         const Duration& period)
 {
-  // \todo This prevents odometry from being published until a command is
-  // received.
-  if (!wheel_pos_initted_)
-    return;
   const double delta_t = period.toSec();
   if (delta_t <= 0)
     return;
 
+  vel_cmd_ = *(vel_cmd_buf_.readFromRT());
   Vector2d desired_lin_vel;
   double desired_yaw_vel;
   if (!vel_cmd_timeout_enabled_ ||
-      time - last_vel_cmd_time_ <= vel_cmd_timeout_)
+      time - vel_cmd_.last_vel_cmd_time <= vel_cmd_timeout_)
   {
-    vel_cmd_ = *(vel_cmd_buf_.readFromRT());
     desired_lin_vel = Vector2d(vel_cmd_.x_vel, vel_cmd_.y_vel);
     desired_yaw_vel = vel_cmd_.yaw_vel;
   }
@@ -837,6 +843,12 @@ init(EffortJointInterface *const eff_joint_iface,
   urdf::Model urdf_model;
   if (!urdf_model.initParam(robot_desc_name))
     throw runtime_error("The URDF data was not found.");
+  KDL::Tree model_tree;
+  if (!kdl_parser::treeFromUrdfModel(urdf_model, model_tree))
+      ; // \todo
+
+  string base_frame;
+  ctrlr_nh.param("base_frame", base_frame, DEF_BASE_FRAME);
   double wheel_dia_scale;
   ctrlr_nh.param("wheel_diameter_scale", wheel_dia_scale, DEF_WHEEL_DIA_SCALE);
   if (wheel_dia_scale < 0)
@@ -848,15 +860,18 @@ init(EffortJointInterface *const eff_joint_iface,
     if (wheel_params.getType() != XmlRpcValue::TypeStruct)
       ; // \todo
 
-    XmlRpcValue& xml_steer_frame = wheel_params["steering_frame"];
-    if (xml_steer_frame.getType() != XmlRpcValue::TypeString)
-      ; // \todo
-    const string steer_frame = xml_steer_frame;
-
     XmlRpcValue& xml_steer_joint_name = wheel_params["steering_joint"];
     if (xml_steer_joint_name.getType() != XmlRpcValue::TypeString)
       ; // \todo
     const string steer_joint_name = xml_steer_joint_name;
+    const shared_ptr<const urdf::Joint> steer_joint =
+      urdf_model.getJoint(steer_joint_name);
+    if (steer_joint == NULL)
+    {
+      throw runtime_error("Steering joint \"" + steer_joint_name +
+                          "\" was not found in the URDF data.");
+    }
+    const string steer_frame = steer_joint->child_link_name;
 
     XmlRpcValue& xml_axle_joint_name = wheel_params["axle_joint"];
     if (xml_axle_joint_name.getType() != XmlRpcValue::TypeString)
@@ -877,7 +892,7 @@ init(EffortJointInterface *const eff_joint_iface,
     // Circumference
     const double circ = (2 * M_PI) * (wheel_dia_scale * dia) / 2;
 
-    wheels_.push_back(Wheel(circ, steer_frame,
+    wheels_.push_back(Wheel(model_tree, circ, base_frame, steer_frame,
                             getJoint(steer_joint_name, true,
                                      ctrlr_nh, urdf_model,
                                      eff_joint_iface, pos_joint_iface,
@@ -908,7 +923,6 @@ init(EffortJointInterface *const eff_joint_iface,
   // For safety, a valid deceleration limit must be greater than zero.
   has_yaw_decel_limit_ = yaw_decel_limit_ > 0;
 
-  ctrlr_nh.param("base_frame", base_frame_, DEF_BASE_FRAME);
   double timeout;
   ctrlr_nh.param("cmd_vel_timeout", timeout, DEF_CMD_VEL_TIMEOUT);
   vel_cmd_timeout_enabled_ = timeout > 0;
@@ -941,7 +955,7 @@ init(EffortJointInterface *const eff_joint_iface,
     odom_affine_.setIdentity();
 
     odom_pub_.msg_.header.frame_id = odom_frame;
-    odom_pub_.msg_.child_frame_id = base_frame_;
+    odom_pub_.msg_.child_frame_id = base_frame;
     odom_pub_.msg_.pose.pose.position.z = 0;
     odom_pub_.msg_.twist.twist.linear.z = 0;
     odom_pub_.msg_.twist.twist.angular.x = 0;
@@ -957,6 +971,11 @@ init(EffortJointInterface *const eff_joint_iface,
     odom_tf_pub_.init(ctrlr_nh, "/tf", 1);
 
     wheel_pos_.resize(2, wheels_.size());
+    for (size_t col = 0; col < wheels_.size(); col++)
+      wheel_pos_.col(col) = wheels_[col].pos();
+    const Vector2d centroid = wheel_pos_.rowwise().mean();
+    wheel_pos_.colwise() -= centroid;
+    neg_wheel_centroid_ = -centroid;
     new_wheel_pos_.resize(wheels_.size(), 2);
   }
 
@@ -968,38 +987,11 @@ init(EffortJointInterface *const eff_joint_iface,
 // Velocity command callback
 void SteeredWheelBaseController::velCmdCB(const TwistConstPtr& vel_cmd)
 {
-  if (!wheel_pos_initted_)
-  {
-    tf::TransformListener tfl;
-    if (comp_odom_)
-    {
-      for (size_t col = 0; col < wheels_.size(); col++)
-      {
-        wheels_[col].initPos(tfl, base_frame_);
-        wheel_pos_.col(col) = wheels_[col].pos();
-      }
-    }
-    else
-    {
-      BOOST_FOREACH(Wheel& wheel, wheels_)
-        wheel.initPos(tfl, base_frame_);
-    }
-
-    if (comp_odom_)
-    {
-      const Vector2d centroid = wheel_pos_.rowwise().mean();
-      wheel_pos_.colwise() -= centroid;
-      neg_wheel_centroid_ = -centroid;
-    }
-
-    wheel_pos_initted_ = true;
-  }
-
   vel_cmd_.x_vel = vel_cmd->linear.x;
   vel_cmd_.y_vel = vel_cmd->linear.y;
   vel_cmd_.yaw_vel = vel_cmd->angular.z;
+  vel_cmd_.last_vel_cmd_time = Time::now();
   vel_cmd_buf_.writeFromNonRT(vel_cmd_);
-  last_vel_cmd_time_ = Time::now();
 }
 
 // Enforce linear motion limits.
