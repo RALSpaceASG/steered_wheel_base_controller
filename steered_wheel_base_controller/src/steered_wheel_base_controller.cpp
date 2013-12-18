@@ -25,18 +25,20 @@
 //
 //         Key-Value Pairs:
 //
-//         steering_frame (string, default: "")
+//         steering_frame (string)
 //             steering_frame's z axis is collinear with the wheel's steering
 //             axis. Its axes are parallel to those of base_frame.
-// \todo
-// steering joint name
-// steering pid
-// axle joint name
-// axle pid
+//         steering_joint (string)
+//             \todo
+//         axle_joint (string)
+//             \todo
 //         diameter (float, default: 1.0)
 //             Wheel diameter. It must be greater than zero. Unit: meter.
 //     ~wheel_diameter_scale (float, default: 1.0)
 //         \todo. It must be greater than zero.
+//     ~pid_gains/<joint name> (mapping, default: empty)
+//         PID controller gains for the specified joint. Needed only for
+//         effort-controlled joints and velocity-controlled steering joints.
 //
 //     ~linear_speed_limit (float, default: 1.0)
 //         \todo. Unit: m/s.
@@ -159,12 +161,12 @@ class Joint
 {
 public:
   virtual ~Joint() {}
-  virtual void init() = 0;
+  virtual void init() {}
 
   bool isValidPos(const double pos) const
     {return pos >= lower_limit_ && pos <= upper_limit_;}
   double getPos() const {return handle_.getPosition();}
-  virtual void setPos(const double pos, const Duration& period) = 0;
+  virtual void setPos(const double pos, const Duration& period) {}
 
   virtual void setVel(const double vel, const Duration& period) = 0;
 
@@ -174,34 +176,6 @@ protected:
 
   JointHandle handle_;
   const double lower_limit_, upper_limit_;  // Unit: radian
-};
-
-// An object of class PIDJoint is a joint controlled by a PID controller.
-class PIDJoint : public Joint
-{
-public:
-  virtual void init();
-  virtual void setPos(const double pos, const Duration& period);
-  virtual void setVel(const double vel, const Duration& period);
-
-protected:
-  PIDJoint(const JointHandle& handle,
-           const shared_ptr<const urdf::Joint> urdf_joint,
-           const NodeHandle& pid_ctrlr_nh, const bool pid_ctrlr_required);
-
-private:
-  const int type_;
-  control_toolbox::Pid pid_ctrlr_;
-};
-
-// Effort-controlled joint
-class EffJoint : public PIDJoint
-{
-public:
-  EffJoint(const JointHandle& handle,
-           const shared_ptr<const urdf::Joint> urdf_joint,
-           const NodeHandle& pid_ctrlr_nh) :
-    PIDJoint(handle, urdf_joint, pid_ctrlr_nh, true) {}
 };
 
 // Position-controlled joint
@@ -220,16 +194,32 @@ private:
   double pos_;
 };
 
-// Velocity-controlled joint
-class VelJoint : public PIDJoint
+// Velocity-controlled joint. Used for axles only.
+class VelJoint : public Joint
 {
 public:
   VelJoint(const JointHandle& handle,
-           const shared_ptr<const urdf::Joint> urdf_joint,
-           const NodeHandle& pid_ctrlr_nh) :
-    PIDJoint(handle, urdf_joint, pid_ctrlr_nh, false) {}
+           const shared_ptr<const urdf::Joint> urdf_joint) :
+    Joint(handle, urdf_joint) {}
 
   virtual void setVel(const double vel, const Duration& period);
+};
+
+// An object of class PIDJoint is a joint controlled by a PID controller.
+class PIDJoint : public Joint
+{
+public:
+  PIDJoint(const JointHandle& handle,
+           const shared_ptr<const urdf::Joint> urdf_joint,
+           const NodeHandle& ctrlr_nh);
+
+  virtual void init();
+  virtual void setPos(const double pos, const Duration& period);
+  virtual void setVel(const double vel, const Duration& period);
+
+private:
+  const int type_;  // URDF joint type
+  control_toolbox::Pid pid_ctrlr_;
 };
 
 // An object of class Wheel is a steered wheel.
@@ -245,6 +235,7 @@ public:
   Vector2d getDeltaPos();
 
   void initJoints();
+  void ctrlSteering(const Duration& period);
   void ctrlSteering(const double theta_desired, const Duration& period);
   void ctrlAxle(const double lin_speed, const Duration& period) const;
 
@@ -259,8 +250,9 @@ private:
 
   shared_ptr<Joint> steer_joint_; // Steering joint
   shared_ptr<Joint> axle_joint_;
-  double theta_steer_;            // Steering joint position
-  double last_theta_axle_;        // Last axle joint position
+  double theta_steer_;              // Steering joint position
+  double last_theta_steer_desired_; // Last desired steering joint position
+  double last_theta_axle_;          // Last axle joint position
 
   double radius_;         // Unit: meter.
   double inv_radius_;     // Inverse of radius_
@@ -291,17 +283,14 @@ Joint::Joint(const JointHandle& handle,
 
 PIDJoint::PIDJoint(const JointHandle& handle,
                    const shared_ptr<const urdf::Joint> urdf_joint,
-                   const NodeHandle& pid_ctrlr_nh,
-                   const bool pid_ctrlr_required) :
+                   const NodeHandle& ctrlr_nh) :
   Joint(handle, urdf_joint), type_(urdf_joint->type)
 {
-  if (!pid_ctrlr_.init(pid_ctrlr_nh))
+  const NodeHandle nh(ctrlr_nh, "pid_gains/" + handle.getName());
+  if (!pid_ctrlr_.init(nh))
   {
-    if (pid_ctrlr_required)
-    {
-      throw runtime_error("No PID gain values for \"" + handle_.getName() +
-                          "\" were found.");
-    }
+    throw runtime_error("No PID gain values for \"" + handle.getName() +
+                        "\" were found.");
   }
 }
 
@@ -369,6 +358,7 @@ Wheel::Wheel(const double circ, const string& steer_frame,
 
   steer_joint_ = steer_joint;
   axle_joint_ = axle_joint;
+  last_theta_steer_desired_ = steer_joint_->getPos();
   last_theta_axle_ = axle_joint_->getPos();
 
   radius_ = circ / (2 * M_PI);
@@ -413,9 +403,17 @@ void Wheel::initJoints()
   axle_joint_->init();
 }
 
+// Maintain the position of this wheel's steering joint.
+void Wheel::ctrlSteering(const Duration& period)
+{
+  ctrlSteering(last_theta_steer_desired_, period);
+}
+
 // Control this wheel's steering joint. theta_desired range: [-pi, pi].
 void Wheel::ctrlSteering(const double theta_desired, const Duration& period)
 {
+  last_theta_steer_desired_ = theta_desired;
+
   // Find the minimum rotation that will align the wheel with theta_desired.
   theta_steer_ = steer_joint_->getPos();
   const double theta_diff = fabs(theta_desired - theta_steer_);
@@ -460,7 +458,7 @@ void addClaimedResources(hardware_interface::HardwareInterface *const hw_iface,
   hw_iface->clearClaims();
 }
 
-shared_ptr<Joint> getJoint(const string& joint_name,
+shared_ptr<Joint> getJoint(const string& joint_name, const bool is_steer_joint,
                            const NodeHandle& ctrlr_nh,
                            const urdf::Model& urdf_model,
                            EffortJointInterface *const eff_joint_iface,
@@ -491,8 +489,7 @@ shared_ptr<Joint> getJoint(const string& joint_name,
                             "\" was not found in the URDF data.");
       }
 
-      const NodeHandle pid_ctrlr_nh(ctrlr_nh, "pid");
-      shared_ptr<Joint> joint(new EffJoint(handle, urdf_joint, pid_ctrlr_nh));
+      shared_ptr<Joint> joint(new PIDJoint(handle, urdf_joint, ctrlr_nh));
       return joint;
     }
   }
@@ -550,8 +547,12 @@ shared_ptr<Joint> getJoint(const string& joint_name,
                             "\" was not found in the URDF data.");
       }
 
-      const NodeHandle pid_ctrlr_nh(ctrlr_nh, "pid");
-      shared_ptr<Joint> joint(new VelJoint(handle, urdf_joint, pid_ctrlr_nh));
+      if (is_steer_joint)
+      {
+        shared_ptr<Joint> joint(new PIDJoint(handle, urdf_joint, ctrlr_nh));
+        return joint;
+      }
+      shared_ptr<Joint> joint(new VelJoint(handle, urdf_joint));
       return joint;
     }
   }
@@ -841,8 +842,6 @@ init(EffortJointInterface *const eff_joint_iface,
   if (wheel_dia_scale < 0)
     ; // \todo
 
-  // \todo Make sure that the PID gain initialization works correctly.
-
   for (int i = 0; i < wheel_param_list.size(); i++)
   {
     XmlRpcValue& wheel_params = wheel_param_list[i];
@@ -879,11 +878,11 @@ init(EffortJointInterface *const eff_joint_iface,
     const double circ = (2 * M_PI) * (wheel_dia_scale * dia) / 2;
 
     wheels_.push_back(Wheel(circ, steer_frame,
-                            getJoint(steer_joint_name,
+                            getJoint(steer_joint_name, true,
                                      ctrlr_nh, urdf_model,
                                      eff_joint_iface, pos_joint_iface,
                                      vel_joint_iface),
-                            getJoint(axle_joint_name,
+                            getJoint(axle_joint_name, false,
                                      ctrlr_nh, urdf_model,
                                      eff_joint_iface, pos_joint_iface,
                                      vel_joint_iface)));
@@ -1112,7 +1111,10 @@ void SteeredWheelBaseController::ctrlWheels(const Vector2d& lin_vel,
     {
       // Stop wheel rotation.
       BOOST_FOREACH(Wheel& wheel, wheels_)
+      {
+        wheel.ctrlSteering(period);
         wheel.ctrlAxle(0, period);
+      }
     }
   }
   else  // The yaw velocity is nonzero.
