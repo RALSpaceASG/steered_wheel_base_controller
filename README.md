@@ -1,4 +1,4 @@
-wl_ros_controllers
-==================
+steered_wheel_base_controller
+=============================
 
-Wunderkammer Laboratory ROS controllers
+A ROS package containing a steered-wheel base controller
