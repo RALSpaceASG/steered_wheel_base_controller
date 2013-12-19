@@ -105,6 +105,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <algorithm>
+#include <exception>
+#include <set>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
 #include <angles/angles.h>
 
 #include <boost/foreach.hpp>
