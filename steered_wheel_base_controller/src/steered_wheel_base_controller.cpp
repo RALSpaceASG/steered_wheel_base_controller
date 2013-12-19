@@ -2,7 +2,7 @@
 ///
 /// \brief Steered-wheel base controller
 ///
-/// This file contains the source code for steered_wheel_base_controller,
+/// This file contains the source code for SteeredWheelBaseController,
 /// a base controller for mobile robots. It works with bases that have two or
 /// more independently-steerable driven wheels and zero or more omnidirectional
 /// passive wheels (e.g. swivel casters).
