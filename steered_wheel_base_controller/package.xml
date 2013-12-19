@@ -3,10 +3,10 @@
   <name>steered_wheel_base_controller</name>
   <version>0.1.0</version>
   <description>
-    steered_wheel_base_controller is a base controller for mobile robots.
-    It works with bases that have two or more independently-steerable driven
-    wheels and zero or more omnidirectional passive wheels (e.g. swivel
-    casters).
+    steered_wheel_base_controller contains SteeredWheelBaseController, a base
+    controller for mobile robots. The controller works with bases that have
+    two or more independently-steerable driven wheels and zero or more
+    omnidirectional passive wheels (e.g. swivel casters).
   </description>
   <!--
     Copyright (c) 2013 Wunderkammer Laboratory
