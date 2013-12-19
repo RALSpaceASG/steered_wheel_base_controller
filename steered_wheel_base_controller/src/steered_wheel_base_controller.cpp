@@ -3,83 +3,93 @@
 /// \brief Steered-wheel base controller
 ///
 /// This file contains the source code for steered_wheel_base_controller,
-/// a base controller for mobile robots. It works with bases that have one or
+/// a base controller for mobile robots. It works with bases that have two or
 /// more independently-steerable driven wheels and zero or more omnidirectional
 /// passive wheels (e.g. swivel casters).
-//
-// Subscribed Topics:
-//     cmd_vel (geometry_msgs/Twist)
-//         Velocity command, defined in the frame specified by the base_frame
-//         parameter. The linear.x and linear.y fields specify the base's
-//         desired linear velocity, measured in meters per second.
-//         The angular.z field specifies the base's desired angular velocity,
-//         measured in radians per second.
-//
-// Published Topics:
-//     odom (nav_msgs/Odometry)
-//         Odometry.
-//
-// Parameters:
-//     ~wheels (sequence of mappings, default: empty)
-//         Two or more steered wheels.
-//
-//         Key-Value Pairs:
-//
-//         steering_joint (string)
-//             \todo
-//         axle_joint (string)
-//             \todo
-//         diameter (float, default: 1.0)
-//             Wheel diameter. It must be greater than zero. Unit: meter.
-//     ~wheel_diameter_scale (float, default: 1.0)
-//         \todo. It must be greater than zero.
-//     ~pid_gains/<joint name> (mapping, default: empty)
-//         PID controller gains for the specified joint. Needed only for
-//         effort-controlled joints and velocity-controlled steering joints.
-//
-//     ~linear_speed_limit (float, default: 1.0)
-//         \todo. Unit: m/s.
-//     ~linear_acceleration_limit (float, default: 1.0)
-//         \todo
-//     ~linear_deceleration_limit (float, default: -1.0)
-//         \todo
-//
-//     ~yaw_speed_limit (float, default: 1.0)
-//         \todo. Unit: rad/s.
-//     ~yaw_acceleration_limit (float, default: 1.0)
-//         \todo
-//     ~yaw_deceleration_limit (float, default: -1.0)
-//         \todo
-//
-//     ~robot_description_name (string, default: robot_description)
-//         Name of a parameter on the Parameter Server. The named parameter's
-//         value is URDF data that describes the robot.
-//     ~base_frame (string, default: base_link)
-//         Frame in which cmd_vel is defined.
-//     ~cmd_vel_timeout (float, default: 0.5)
-//         If cmd_vel_timeout is greater than zero and this controller does
-//         not receive a velocity command for more than cmd_vel_timeout
-//         seconds, wheel motion is paused until a command is received.
-//         If cmd_vel_timeout is less than or equal to zero, the command
-//         timeout is disabled.
-//
-//     ~odometry_publishing_frequency (float, default: 30.0)
-//         Odometry publishing frequency. If it is less than or equal to zero,
-//         odometry computation is disabled.  Unit: hertz.
-//     ~odometry_frame (string, default: odom)
-//         Odometry frame.
-//     ~initial_x (float, default: 0.0)
-//         X coordinate of the base's initial position in the odometry frame.
-//         Unit: meter.
-//     ~initial_y (float, default: 0.0)
-//         Y coordinate of the base's initial position in the odometry frame.
-//         Unit: meter.
-//     ~initial_yaw (float, default: 0.0)
-//         Initial orientation of the base in the odometry frame. Unit: radian.
-//
-// Published Transforms: \todo
-//     <odometry_frame> to <base_frame>
-//         Specifies the base's pose in the odometry frame.
+///
+/// Subscribed Topics:
+///     cmd_vel (geometry_msgs/Twist)
+///         Velocity command, defined in the frame specified by the base_frame
+///         parameter. The linear.x and linear.y fields specify the base's
+///         desired linear velocity, measured in meters per second.
+///         The angular.z field specifies the base's desired angular velocity,
+///         measured in radians per second.
+///
+/// Published Topics:
+///     odom (nav_msgs/Odometry)
+///         Odometry.
+///
+/// Parameters:
+///     ~robot_description_name (string, default: robot_description)
+///         Name of a parameter on the Parameter Server. The named parameter's
+///         value is URDF data that describes the robot.
+///     ~base_frame (string, default: base_link)
+///         Frame in which cmd_vel is defined.
+///     ~cmd_vel_timeout (float, default: 0.5)
+///         If cmd_vel_timeout is greater than zero and this controller does
+///         not receive a velocity command for more than cmd_vel_timeout
+///         seconds, wheel motion is paused until a command is received.
+///         If cmd_vel_timeout is less than or equal to zero, the command
+///         timeout is disabled.
+///
+///     ~linear_speed_limit (float, default: 1.0)
+///         Linear speed limit. If linear_speed_limit is less than zero, the
+///         linear speed limit is disabled. Unit: m/s.
+///     ~linear_acceleration_limit (float, default: 1.0)
+///         Linear acceleration limit. If linear_acceleration_limit is less
+///         than zero, the linear acceleration limit is disabled. Unit: m/s**2.
+///     ~linear_deceleration_limit (float, default: -1.0)
+///         Linear deceleration limit. If linear_deceleration_limit is less
+///         than or equal to zero, the linear deceleration limit is disabled.
+///         Unit: m/s**2.
+///
+///     ~yaw_speed_limit (float, default: 1.0)
+///         Yaw speed limit. If yaw_speed_limit is less than zero, the yaw
+///         speed limit is disabled. Unit: rad/s.
+///     ~yaw_acceleration_limit (float, default: 1.0)
+///         Yaw acceleration limit. If yaw_acceleration_limit is less than
+///         zero, the yaw acceleration limit is disabled. Unit: rad/s**2.
+///     ~yaw_deceleration_limit (float, default: -1.0)
+///         Yaw deceleration limit. If yaw_deceleration_limit is less than or
+///         equal to zero, the yaw deceleration limit is disabled.
+///         Unit: rad/s**2.
+///
+///     ~wheels (sequence of mappings, default: empty)
+///         Two or more steered wheels.
+///
+///         Key-Value Pairs:
+///
+///         steering_joint (string)
+///             Steering joint.
+///         axle_joint (string)
+///             Axle joint.
+///         diameter (float)
+///             Wheel diameter. It must be greater than zero. Unit: meter.
+///     ~wheel_diameter_scale (float, default: 1.0)
+///         Scale applied to each wheel's diameter. It is used to correct for
+///         tire deformation. wheel_diameter_scale must be greater than zero.
+///     ~pid_gains/<joint name> (mapping, default: empty)
+///         PID controller gains for the specified joint. Needed only for
+///         effort-controlled joints and velocity-controlled steering joints.
+///
+///     ~odometry_publishing_frequency (float, default: 30.0)
+///         Odometry publishing frequency. If it is less than or equal to zero,
+///         odometry computation is disabled.  Unit: hertz.
+///     ~odometry_frame (string, default: odom)
+///         Odometry frame.
+///     ~initial_x (float, default: 0.0)
+///         X coordinate of the base's initial position in the odometry frame.
+///         Unit: meter.
+///     ~initial_y (float, default: 0.0)
+///         Y coordinate of the base's initial position in the odometry frame.
+///         Unit: meter.
+///     ~initial_yaw (float, default: 0.0)
+///         Initial orientation of the base in the odometry frame.
+///         Unit: radian.
+///
+/// Provided tf Transforms:
+///     <odometry_frame> to <base_frame>
+///         Specifies the base's pose in the odometry frame.
 //
 // Copyright (c) 2013 Wunderkammer Laboratory
 //
@@ -126,7 +136,6 @@
 using std::runtime_error;
 using std::set;
 using std::string;
-using std::vector;
 
 using boost::shared_ptr;
 
@@ -155,9 +164,28 @@ using XmlRpc::XmlRpcValue;
 namespace
 {
 
+void addClaimedResources(hardware_interface::HardwareInterface *const hw_iface,
+                         set<string>& claimed_resources)
+{
+  if (hw_iface == NULL)
+    return;
+  const set<string> claims = hw_iface->getClaims();
+  claimed_resources.insert(claims.begin(), claims.end());
+  hw_iface->clearClaims();
+}
+
 double clamp(const double val, const double min_val, const double max_val)
 {
   return std::min(std::max(val, min_val), max_val);
+}
+
+double hermite(const double t)
+{
+  if (t <= 0)
+    return 0;
+  if (t >= 1)
+    return 1;
+  return (-2 * t + 3) * t * t;  // -2t**3 + 3t**2
 }
 
 class Joint
@@ -197,7 +225,7 @@ private:
   double pos_;
 };
 
-// Velocity-controlled joint. Used for axles only.
+// Velocity-controlled joint. VelJoint is used for axles only.
 class VelJoint : public Joint
 {
 public:
@@ -229,10 +257,11 @@ private:
 class Wheel
 {
 public:
-  Wheel(const KDL::Tree& tree, const double circ,
+  Wheel(const KDL::Tree& tree,
         const string& base_frame, const string& steer_frame,
         const shared_ptr<Joint> steer_joint,
-        const shared_ptr<Joint> axle_joint);
+        const shared_ptr<Joint> axle_joint,
+        const double circ);
 
   const Vector2d& pos() const {return pos_;}
   Vector2d getDeltaPos();
@@ -250,7 +279,7 @@ private:
   string steer_frame_;  // Steering frame
   Vector2d pos_;        // Wheel's position in the base frame
 
-  shared_ptr<Joint> steer_joint_; // Steering joint
+  shared_ptr<Joint> steer_joint_;   // Steering joint
   shared_ptr<Joint> axle_joint_;
   double theta_steer_;              // Steering joint position
   double last_theta_steer_desired_; // Last desired steering joint position
@@ -261,26 +290,38 @@ private:
   double axle_vel_gain_;  // Axle velocity gain
 };
 
-// Wheel axle velocities vary from full velocity (|steering angle| = 0) to
-// zero velocity (|steering angle| >= ZERO_AXLE_VEL_ANG).
-// ZERO_AXLE_VEL_ANG unit: radian.
-const double Wheel::ZERO_AXLE_VEL_ANG = M_PI / 8;
-
-double hermite(const double t)
-{
-  if (t <= 0)
-    return 0;
-  if (t >= 1)
-    return 1;
-  return (-2 * t + 3) * t * t;  // -2t**3 + 3t**2
-}
-
 Joint::Joint(const JointHandle& handle,
              const shared_ptr<const urdf::Joint> urdf_joint) :
   handle_(handle), lower_limit_(urdf_joint->limits->lower),
   upper_limit_(urdf_joint->limits->upper)
 {
   // Do nothing.
+}
+
+// Initialize this joint.
+void PosJoint::init()
+{
+  pos_ = handle_.getPosition();
+}
+
+// Specify this joint's position.
+void PosJoint::setPos(const double pos, const Duration& /* period */)
+{
+  pos_ = pos;
+  handle_.setCommand(pos_);
+}
+
+// Specify this joint's velocity.
+void PosJoint::setVel(const double vel, const Duration& period)
+{
+  pos_ += vel * period.toSec();
+  handle_.setCommand(pos_);
+}
+
+// Specify this joint's velocity.
+void VelJoint::setVel(const double vel, const Duration& /* period */)
+{
+  handle_.setCommand(vel);
 }
 
 PIDJoint::PIDJoint(const JointHandle& handle,
@@ -296,11 +337,13 @@ PIDJoint::PIDJoint(const JointHandle& handle,
   }
 }
 
+// Initialize this joint.
 void PIDJoint::init()
 {
   pid_ctrlr_.reset();
 }
 
+// Specify this joint's position.
 void PIDJoint::setPos(const double pos, const Duration& period)
 {
   const double curr_pos = handle_.getPosition();
@@ -324,76 +367,36 @@ void PIDJoint::setPos(const double pos, const Duration& period)
   handle_.setCommand(pid_ctrlr_.computeCommand(error, period));
 }
 
+// Specify this joint's velocity.
 void PIDJoint::setVel(const double vel, const Duration& period)
 {
   const double error = vel - handle_.getVelocity();
   handle_.setCommand(pid_ctrlr_.computeCommand(error, period));
 }
 
-void PosJoint::init()
-{
-  pos_ = handle_.getPosition();
-}
+// Wheel axle velocities vary from full velocity (|steering angle| = 0) to
+// zero velocity (|steering angle| >= ZERO_AXLE_VEL_ANG).
+// ZERO_AXLE_VEL_ANG unit: radian.
+const double Wheel::ZERO_AXLE_VEL_ANG = M_PI / 8;
 
-void PosJoint::setPos(const double pos, const Duration& /* period */)
-{
-  pos_ = pos;
-  handle_.setCommand(pos_);
-}
-
-void PosJoint::setVel(const double vel, const Duration& period)
-{
-  pos_ += vel * period.toSec();
-  handle_.setCommand(pos_);
-}
-
-void VelJoint::setVel(const double vel, const Duration& /* period */)
-{
-  handle_.setCommand(vel);
-}
-
-Wheel::Wheel(const KDL::Tree& tree, const double circ,
+Wheel::Wheel(const KDL::Tree& tree,
              const string& base_frame, const string& steer_frame,
              const shared_ptr<Joint> steer_joint,
-             const shared_ptr<Joint> axle_joint)
+             const shared_ptr<Joint> axle_joint,
+             const double circ)
 {
   steer_frame_ = steer_frame;
   initPos(tree, base_frame);
 
   steer_joint_ = steer_joint;
   axle_joint_ = axle_joint;
-  last_theta_steer_desired_ = steer_joint_->getPos();
+  theta_steer_ = steer_joint_->getPos();
+  last_theta_steer_desired_ = theta_steer_;
   last_theta_axle_ = axle_joint_->getPos();
 
   radius_ = circ / (2 * M_PI);
   inv_radius_ = 1 / radius_;
   axle_vel_gain_ = 0;
-}
-
-// Initialize pos_.
-void Wheel::initPos(const KDL::Tree& tree, const string& base_frame)
-{
-  KDL::Chain chain;
-  if (!tree.getChain(base_frame, steer_frame_, chain))
-  {
-    throw runtime_error("No kinematic chain was found from \"" + base_frame +
-                        "\" to \"" + steer_frame_ + "\".");
-  }
-
-  const unsigned int num_joints = chain.getNrOfJoints();
-  KDL::JntArray joint_positions(num_joints);
-  for (unsigned int i = 0; i < num_joints; i++)
-    joint_positions(i) = 0;
-
-  KDL::ChainFkSolverPos_recursive solver(chain);
-  KDL::Frame frame;
-  if (solver.JntToCart(joint_positions, frame) < 0)
-  {
-    throw runtime_error("The position of steering frame \"" + steer_frame_ +
-                        "\" in base frame \"" + base_frame +
-                        "\" was not found.");
-  }
-  pos_ = Vector2d(frame.p.x(), frame.p.y());
 }
 
 // Return the difference between this wheel's current position and its
@@ -408,6 +411,7 @@ Vector2d Wheel::getDeltaPos()
   return Vector2d(cos(theta_steer_), sin(theta_steer_)) * vec_mag;
 }
 
+// Initialize this wheel's steering and axle joints.
 void Wheel::initJoints()
 {
   steer_joint_->init();
@@ -459,16 +463,34 @@ void Wheel::ctrlAxle(const double lin_speed, const Duration& period) const
   axle_joint_->setVel(ang_vel, period);
 }
 
-void addClaimedResources(hardware_interface::HardwareInterface *const hw_iface,
-                         set<string>& claimed_resources)
+// Initialize pos_.
+void Wheel::initPos(const KDL::Tree& tree, const string& base_frame)
 {
-  if (hw_iface == NULL)
-    return;
-  const set<string> claims = hw_iface->getClaims();
-  claimed_resources.insert(claims.begin(), claims.end());
-  hw_iface->clearClaims();
+  KDL::Chain chain;
+  if (!tree.getChain(base_frame, steer_frame_, chain))
+  {
+    throw runtime_error("No kinematic chain was found from \"" + base_frame +
+                        "\" to \"" + steer_frame_ + "\".");
+  }
+
+  const unsigned int num_joints = chain.getNrOfJoints();
+  KDL::JntArray joint_positions(num_joints);
+  for (unsigned int i = 0; i < num_joints; i++)
+    joint_positions(i) = 0;
+
+  KDL::ChainFkSolverPos_recursive solver(chain);
+  KDL::Frame frame;
+  if (solver.JntToCart(joint_positions, frame) < 0)
+  {
+    throw runtime_error("The position of steering frame \"" + steer_frame_ +
+                        "\" in base frame \"" + base_frame +
+                        "\" was not found.");
+  }
+  pos_ = Vector2d(frame.p.x(), frame.p.y());
 }
 
+// Create an object of class Joint that corresponds to the URDF joint specified
+// by joint_name.
 shared_ptr<Joint> getJoint(const string& joint_name, const bool is_steer_joint,
                            const NodeHandle& ctrlr_nh,
                            const urdf::Model& urdf_model,
@@ -604,7 +626,9 @@ private:
     Time last_vel_cmd_time;
   };
 
-  static const double DEF_WHEEL_DIA_SCALE;
+  static const string DEF_ROBOT_DESC_NAME;
+  static const string DEF_BASE_FRAME;
+  static const double DEF_CMD_VEL_TIMEOUT;
 
   static const double DEF_LIN_SPEED_LIMIT;
   static const double DEF_LIN_ACCEL_LIMIT;
@@ -614,9 +638,7 @@ private:
   static const double DEF_YAW_ACCEL_LIMIT;
   static const double DEF_YAW_DECEL_LIMIT;
 
-  static const string DEF_ROBOT_DESC_NAME;
-  static const string DEF_BASE_FRAME;
-  static const double DEF_CMD_VEL_TIMEOUT;
+  static const double DEF_WHEEL_DIA_SCALE;
 
   static const double DEF_ODOM_PUB_FREQ;
   static const string DEF_ODOM_FRAME;
@@ -638,10 +660,9 @@ private:
                           const double delta_t, const double inv_delta_t);
   void ctrlWheels(const Vector2d& lin_vel, const double yaw_vel,
                   const Duration& period);
-
   void compOdometry(const Time& time, const double inv_delta_t);
 
-  vector<Wheel> wheels_;
+  std::vector<Wheel> wheels_;
 
   // Linear motion limits
   bool has_lin_speed_limit_;
@@ -662,30 +683,36 @@ private:
   Vector2d last_lin_vel_; // Last linear velocity. Unit: m/s.
   double last_yaw_vel_;   // Last yaw velocity. Unit: rad/s.
 
+  // Velocity command member variables
+  VelCmd vel_cmd_;
+  RealtimeBuffer<VelCmd> vel_cmd_buf_;
+  bool vel_cmd_timeout_enabled_;
+  Duration vel_cmd_timeout_;
+  ros::Subscriber vel_cmd_sub_;
+
   // Odometry
-  bool comp_odom_;                // Compute odometry
-  ros::Duration odom_pub_period_; // Odometry publishing period
-  Affine2d init_odom_to_base_;    // Initial odometry to base frame transform
-  Affine2d odom_to_base_;         // Odometry to base frame transform
+  bool comp_odom_;              // Compute odometry
+  Duration odom_pub_period_;    // Odometry publishing period
+  Affine2d init_odom_to_base_;  // Initial odometry to base frame transform
+  Affine2d odom_to_base_;       // Odometry to base frame transform
   Affine2d odom_affine_;
   double last_odom_x_, last_odom_y_, last_odom_yaw_;
-  // Most recent times at which the odometry was published.
-  ros::Time last_odom_pub_time_, last_odom_tf_pub_time_;
-  Eigen::Matrix2Xd wheel_pos_;    // Wheel positions
+  // wheel_pos_ contains the positions of the wheel's steering axles.
+  // The positions are relative to the centroid of the steering axle positions
+  // in the base frame. neg_wheel_centroid is the negative version of that
+  // centroid.
+  Eigen::Matrix2Xd wheel_pos_;
   Vector2d neg_wheel_centroid_;
   Eigen::MatrixX2d new_wheel_pos_;
-  // Odometry publishers
   RealtimePublisher<nav_msgs::Odometry> odom_pub_;
   RealtimePublisher<tf::tfMessage> odom_tf_pub_;
-
-  VelCmd vel_cmd_;                      // Velocity command
-  bool vel_cmd_timeout_enabled_;
-  Duration vel_cmd_timeout_;            // Velocity command timeout
-  RealtimeBuffer<VelCmd> vel_cmd_buf_;  // Velocity command buffer
-  ros::Subscriber vel_cmd_sub_;         // Velocity command subscriber
+  Time last_odom_pub_time_, last_odom_tf_pub_time_;
 };
 
-const double SteeredWheelBaseController::DEF_WHEEL_DIA_SCALE = 1;
+const string SteeredWheelBaseController::DEF_ROBOT_DESC_NAME =
+  "robot_description";
+const string SteeredWheelBaseController::DEF_BASE_FRAME = "base_link";
+const double SteeredWheelBaseController::DEF_CMD_VEL_TIMEOUT = 0.5;
 
 const double SteeredWheelBaseController::DEF_LIN_SPEED_LIMIT = 1;
 const double SteeredWheelBaseController::DEF_LIN_ACCEL_LIMIT = 1;
@@ -695,22 +722,10 @@ const double SteeredWheelBaseController::DEF_YAW_SPEED_LIMIT = 1;
 const double SteeredWheelBaseController::DEF_YAW_ACCEL_LIMIT = 1;
 const double SteeredWheelBaseController::DEF_YAW_DECEL_LIMIT = -1;
 
-// Default name of the robot description parameter.
-const string SteeredWheelBaseController::DEF_ROBOT_DESC_NAME =
-  "robot_description";
-// Default base frame
-const string SteeredWheelBaseController::DEF_BASE_FRAME = "base_link";
-// Default cmd_vel timeout. Unit: second.
-const double SteeredWheelBaseController::DEF_CMD_VEL_TIMEOUT = 0.5;
+const double SteeredWheelBaseController::DEF_WHEEL_DIA_SCALE = 1;
 
-// DEF_ODOM_PUB_FREQ: Default odometry publishing frequency. Unit: hertz.
-// DEF_ODOM_FRAME: Default odometry frame
 const double SteeredWheelBaseController::DEF_ODOM_PUB_FREQ = 30.0;
 const string SteeredWheelBaseController::DEF_ODOM_FRAME = "odom";
-// DEF_INIT_X and DEF_INIT_Y: Default coordinates of the base's initial
-//     position in the odometry frame. Unit: meter.
-// DEF_INIT_YAW: Default initial orientation of the base in the odometry frame.
-//     Unit: radian.
 const double SteeredWheelBaseController::DEF_INIT_X = 0;
 const double SteeredWheelBaseController::DEF_INIT_Y = 0;
 const double SteeredWheelBaseController::DEF_INIT_YAW = 0;
@@ -730,7 +745,7 @@ bool SteeredWheelBaseController::initRequest(RobotHW *const robot_hw,
 {
   if (state_ != CONSTRUCTED)
   {
-    ROS_ERROR("todo");
+    ROS_ERROR("The steered-wheel base controller could not be created.");
     return false;
   }
 
@@ -833,20 +848,13 @@ void SteeredWheelBaseController::update(const Time& time,
     compOdometry(time, inv_delta_t);
 }
 
+// Initialize this steered-wheel base controller.
 void SteeredWheelBaseController::
 init(EffortJointInterface *const eff_joint_iface,
      PositionJointInterface *const pos_joint_iface,
      VelocityJointInterface *const vel_joint_iface,
      NodeHandle& ctrlr_nh)
 {
-  XmlRpcValue wheel_param_list;
-  if (!ctrlr_nh.getParam("wheels", wheel_param_list))
-    throw runtime_error("No wheels were specified.");
-  if (wheel_param_list.getType() != XmlRpcValue::TypeArray)
-    throw runtime_error("The specified list of wheels is invalid.");
-  if (wheel_param_list.size() < 2)
-    throw runtime_error("At least two wheels must be specified.");
-
   string robot_desc_name;
   ctrlr_nh.param("robot_description_name", robot_desc_name,
                  DEF_ROBOT_DESC_NAME);
@@ -855,25 +863,69 @@ init(EffortJointInterface *const eff_joint_iface,
     throw runtime_error("The URDF data was not found.");
   KDL::Tree model_tree;
   if (!kdl_parser::treeFromUrdfModel(urdf_model, model_tree))
-      ; // \todo
+    throw runtime_error("The kinematic tree could not be created.");
 
   string base_frame;
   ctrlr_nh.param("base_frame", base_frame, DEF_BASE_FRAME);
+  double timeout;
+  ctrlr_nh.param("cmd_vel_timeout", timeout, DEF_CMD_VEL_TIMEOUT);
+  vel_cmd_timeout_enabled_ = timeout > 0;
+  if (vel_cmd_timeout_enabled_)
+    vel_cmd_timeout_.fromSec(timeout);
+
+  ctrlr_nh.param("linear_speed_limit", lin_speed_limit_, DEF_LIN_SPEED_LIMIT);
+  has_lin_speed_limit_ = lin_speed_limit_ >= 0;
+  ctrlr_nh.param("linear_acceleration_limit", lin_accel_limit_,
+                 DEF_LIN_ACCEL_LIMIT);
+  has_lin_accel_limit_ = lin_accel_limit_ >= 0;
+  // For safety, a valid deceleration limit must be greater than zero.
+  ctrlr_nh.param("linear_deceleration_limit", lin_decel_limit_,
+                 DEF_LIN_DECEL_LIMIT);
+  has_lin_decel_limit_ = lin_decel_limit_ > 0;
+
+  ctrlr_nh.param("yaw_speed_limit", yaw_speed_limit_, DEF_YAW_SPEED_LIMIT);
+  has_yaw_speed_limit_ = yaw_speed_limit_ >= 0;
+  ctrlr_nh.param("yaw_acceleration_limit", yaw_accel_limit_,
+                 DEF_YAW_ACCEL_LIMIT);
+  has_yaw_accel_limit_ = yaw_accel_limit_ >= 0;
+  // For safety, a valid deceleration limit must be greater than zero.
+  ctrlr_nh.param("yaw_deceleration_limit", yaw_decel_limit_,
+                 DEF_YAW_DECEL_LIMIT);
+  has_yaw_decel_limit_ = yaw_decel_limit_ > 0;
+
+  // Wheels
+
+  XmlRpcValue wheel_param_list;
+  if (!ctrlr_nh.getParam("wheels", wheel_param_list))
+    throw runtime_error("No wheels were specified.");
+  if (wheel_param_list.getType() != XmlRpcValue::TypeArray)
+    throw runtime_error("The specified list of wheels is invalid.");
+  if (wheel_param_list.size() < 2)
+    throw runtime_error("At least two wheels must be specified.");
+
   double wheel_dia_scale;
   ctrlr_nh.param("wheel_diameter_scale", wheel_dia_scale, DEF_WHEEL_DIA_SCALE);
-  if (wheel_dia_scale < 0)
-    ; // \todo
+  if (wheel_dia_scale <= 0)
+  {
+    throw runtime_error("The specified wheel diameter scale is less than or "
+                        "equal to zero.");
+  }
 
   for (int i = 0; i < wheel_param_list.size(); i++)
   {
     XmlRpcValue& wheel_params = wheel_param_list[i];
     if (wheel_params.getType() != XmlRpcValue::TypeStruct)
-      ; // \todo
+      throw runtime_error("The specified list of wheels is invalid.");
 
-    XmlRpcValue& xml_steer_joint_name = wheel_params["steering_joint"];
-    if (xml_steer_joint_name.getType() != XmlRpcValue::TypeString)
-      ; // \todo
-    const string steer_joint_name = xml_steer_joint_name;
+    if (!wheel_params.hasMember("steering_joint"))
+      throw runtime_error("A steering joint was not specified.");
+    XmlRpcValue& xml_steer_joint = wheel_params["steering_joint"];
+    if (!xml_steer_joint.valid() ||
+        xml_steer_joint.getType() != XmlRpcValue::TypeString)
+    {
+      throw runtime_error("An invalid steering joint was specified.");
+    }
+    const string steer_joint_name = xml_steer_joint;
     const shared_ptr<const urdf::Joint> steer_joint =
       urdf_model.getJoint(steer_joint_name);
     if (steer_joint == NULL)
@@ -883,26 +935,45 @@ init(EffortJointInterface *const eff_joint_iface,
     }
     const string steer_frame = steer_joint->child_link_name;
 
-    XmlRpcValue& xml_axle_joint_name = wheel_params["axle_joint"];
-    if (xml_axle_joint_name.getType() != XmlRpcValue::TypeString)
-      ; // \todo
-    const string axle_joint_name = xml_axle_joint_name;
-
-    // \todo What happens if "diameter" isn't found. Needs to be set to
-    // default value. What if its type is wrong?
-    XmlRpcValue& xml_dia = wheel_params["diameter"];
-    if (xml_dia.getType() != XmlRpcValue::TypeInt &&
-        xml_dia.getType() != XmlRpcValue::TypeDouble)
+    if (!wheel_params.hasMember("axle_joint"))
+      throw runtime_error("An axle joint was not specified.");
+    XmlRpcValue& xml_axle_joint = wheel_params["axle_joint"];
+    if (!xml_axle_joint.valid() ||
+        xml_axle_joint.getType() != XmlRpcValue::TypeString)
     {
-      ; // \todo
+      throw runtime_error("An invalid axle joint was specified.");
     }
-    const double dia = xml_dia;
+    const string axle_joint_name = xml_axle_joint;
+
+    if (!wheel_params.hasMember("diameter"))
+      throw runtime_error("A wheel diameter was not specified.");
+    XmlRpcValue& xml_dia = wheel_params["diameter"];
+    if (!xml_dia.valid())
+      throw runtime_error("An invalid wheel diameter was specified.");
+    double dia;
+    switch (xml_dia.getType())
+    {
+      case XmlRpcValue::TypeInt:
+        {
+          const int tmp = xml_dia;
+          dia = tmp;
+        }
+        break;
+      case XmlRpcValue::TypeDouble:
+        dia = xml_dia;
+        break;
+      default:
+        throw runtime_error("An invalid wheel diameter was specified.");
+    }
     if (dia <= 0)
-      ; // \todo
+    {
+      throw runtime_error("A specified wheel diameter is less than or "
+                          "equal to zero.");
+    }
     // Circumference
     const double circ = (2 * M_PI) * (wheel_dia_scale * dia) / 2;
 
-    wheels_.push_back(Wheel(model_tree, circ, base_frame, steer_frame,
+    wheels_.push_back(Wheel(model_tree, base_frame, steer_frame,
                             getJoint(steer_joint_name, true,
                                      ctrlr_nh, urdf_model,
                                      eff_joint_iface, pos_joint_iface,
@@ -910,34 +981,8 @@ init(EffortJointInterface *const eff_joint_iface,
                             getJoint(axle_joint_name, false,
                                      ctrlr_nh, urdf_model,
                                      eff_joint_iface, pos_joint_iface,
-                                     vel_joint_iface)));
+                                     vel_joint_iface), circ));
   }
-
-  ctrlr_nh.param("linear_speed_limit", lin_speed_limit_, DEF_LIN_SPEED_LIMIT);
-  has_lin_speed_limit_ = lin_speed_limit_ >= 0;
-  ctrlr_nh.param("linear_acceleration_limit", lin_accel_limit_,
-                 DEF_LIN_ACCEL_LIMIT);
-  has_lin_accel_limit_ = lin_accel_limit_ >= 0;
-  ctrlr_nh.param("linear_deceleration_limit", lin_decel_limit_,
-                 DEF_LIN_DECEL_LIMIT);
-  // For safety, a valid deceleration limit must be greater than zero.
-  has_lin_decel_limit_ = lin_decel_limit_ > 0;
-
-  ctrlr_nh.param("yaw_speed_limit", yaw_speed_limit_, DEF_YAW_SPEED_LIMIT);
-  has_yaw_speed_limit_ = yaw_speed_limit_ >= 0;
-  ctrlr_nh.param("yaw_acceleration_limit", yaw_accel_limit_,
-                 DEF_YAW_ACCEL_LIMIT);
-  has_yaw_accel_limit_ = yaw_accel_limit_ >= 0;
-  ctrlr_nh.param("yaw_deceleration_limit", yaw_decel_limit_,
-                 DEF_YAW_DECEL_LIMIT);
-  // For safety, a valid deceleration limit must be greater than zero.
-  has_yaw_decel_limit_ = yaw_decel_limit_ > 0;
-
-  double timeout;
-  ctrlr_nh.param("cmd_vel_timeout", timeout, DEF_CMD_VEL_TIMEOUT);
-  vel_cmd_timeout_enabled_ = timeout > 0;
-  if (vel_cmd_timeout_enabled_)
-    vel_cmd_timeout_.fromSec(timeout);
 
   // Odometry
   double odom_pub_freq;
@@ -946,7 +991,7 @@ init(EffortJointInterface *const eff_joint_iface,
   comp_odom_ = odom_pub_freq > 0;
   if (comp_odom_)
   {
-    odom_pub_period_ = ros::Duration(1 / odom_pub_freq);
+    odom_pub_period_ = Duration(1 / odom_pub_freq);
 
     double init_x, init_y, init_yaw;
     ctrlr_nh.param("initial_x", init_x, DEF_INIT_X);
@@ -955,6 +1000,14 @@ init(EffortJointInterface *const eff_joint_iface,
     init_odom_to_base_.setIdentity();
     init_odom_to_base_.rotate(clamp(init_yaw, -M_PI, M_PI));
     init_odom_to_base_.translation() = Vector2d(init_x, init_y);
+
+    wheel_pos_.resize(2, wheels_.size());
+    for (size_t col = 0; col < wheels_.size(); col++)
+      wheel_pos_.col(col) = wheels_[col].pos();
+    const Vector2d centroid = wheel_pos_.rowwise().mean();
+    wheel_pos_.colwise() -= centroid;
+    neg_wheel_centroid_ = -centroid;
+    new_wheel_pos_.resize(wheels_.size(), 2);
 
     string odom_frame;
     ctrlr_nh.param("odometry_frame", odom_frame, DEF_ODOM_FRAME);
@@ -973,14 +1026,6 @@ init(EffortJointInterface *const eff_joint_iface,
     odom_tf_trans.child_frame_id = odom_pub_.msg_.child_frame_id;
     odom_tf_trans.transform.translation.z = 0;
     odom_tf_pub_.init(ctrlr_nh, "/tf", 1);
-
-    wheel_pos_.resize(2, wheels_.size());
-    for (size_t col = 0; col < wheels_.size(); col++)
-      wheel_pos_.col(col) = wheels_[col].pos();
-    const Vector2d centroid = wheel_pos_.rowwise().mean();
-    wheel_pos_.colwise() -= centroid;
-    neg_wheel_centroid_ = -centroid;
-    new_wheel_pos_.resize(wheels_.size(), 2);
   }
 
   vel_cmd_sub_ = ctrlr_nh.subscribe("cmd_vel", 1,
