@@ -4,7 +4,7 @@
   <version>0.1.0</version>
   <description>
     steered_wheel_base_controller is a base controller for mobile robots.
-    It works with bases that have one or more independently-steerable driven
+    It works with bases that have two or more independently-steerable driven
     wheels and zero or more omnidirectional passive wheels (e.g. swivel
     casters).
   </description>
@@ -29,24 +29,40 @@
   <license>Apache 2.0</license>
 
   <url type="website">http://wiki.ros.org/steered_wheel_base_controller</url>
-  <url type="bugtracker">https://github.com/wunderkammer-laboratory/wl_ros_controllers/issues</url>
-  <url type="repository">https://github.com/wunderkammer-laboratory/wl_ros_controllers.git</url>
+  <url type="bugtracker">https://github.com/wunderkammer-laboratory/steered_wheel_base_controller/issues</url>
+  <url type="repository">https://github.com/wunderkammer-laboratory/steered_wheel_base_controller.git</url>
 
   <author email="jim.rothrock@wunderkammerlab.com">Jim Rothrock</author>
 
   <buildtool_depend>catkin</buildtool_depend>
 
+  <build_depend>angles</build_depend>
+  <build_depend>control_toolbox</build_depend>
   <build_depend>controller_interface</build_depend>
+  <build_depend>geometry_msgs</build_depend>
+  <build_depend>hardware_interface</build_depend>
   <build_depend>kdl_parser</build_depend>
+  <build_depend>nav_msgs</build_depend>
   <build_depend>orocos_kdl</build_depend>
+  <build_depend>pluginlib</build_depend>
+  <build_depend>realtime_tools</build_depend>
   <build_depend>roscpp</build_depend>
   <build_depend>tf</build_depend>
+  <build_depend>urdf</build_depend>
 
+  <run_depend>angles</run_depend>
+  <run_depend>control_toolbox</run_depend>
   <run_depend>controller_interface</run_depend>
+  <run_depend>geometry_msgs</run_depend>
+  <run_depend>hardware_interface</run_depend>
   <run_depend>kdl_parser</run_depend>
+  <run_depend>nav_msgs</run_depend>
   <run_depend>orocos_kdl</run_depend>
+  <run_depend>pluginlib</run_depend>
+  <run_depend>realtime_tools</run_depend>
   <run_depend>roscpp</run_depend>
   <run_depend>tf</run_depend>
+  <run_depend>urdf</run_depend>
 
   <export>
     <controller_interface plugin="${prefix}/sw_base_controller_plugin.xml"/>
