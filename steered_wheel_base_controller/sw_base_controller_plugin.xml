@@ -22,8 +22,8 @@ limitations under the License.
          type="steered_wheel_base_controller::SteeredWheelBaseController"
          base_class_type="controller_interface::ControllerBase">
     <description>
-      The SteeredWheelBaseController is a base controller for mobile robots.
-      It works with bases that have one or more independently-steerable driven
+      SteeredWheelBaseController is a base controller for mobile robots.
+      It works with bases that have two or more independently-steerable driven
       wheels and zero or more omnidirectional passive wheels (e.g. swivel
       casters).
     </description>
