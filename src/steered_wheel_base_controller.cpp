@@ -9,7 +9,7 @@
 ///
 /// Subscribed Topics:
 ///     cmd_vel (geometry_msgs/Twist)
-///         Velocity command, defined in the frame specified by the base_frame
+///         Velocity command, defined in the frame specified by the base_link
 ///         parameter. The linear.x and linear.y fields specify the base's
 ///         desired linear velocity, measured in meters per second.
 ///         The angular.z field specifies the base's desired angular velocity,
@@ -23,8 +23,10 @@
 ///     ~robot_description_name (string, default: robot_description)
 ///         Name of a parameter on the Parameter Server. The named parameter's
 ///         value is URDF data that describes the robot.
-///     ~base_frame (string, default: base_link)
-///         Frame in which cmd_vel is defined.
+///     ~base_link (string, default: base_link)
+///         Link that specifies the frame in which cmd_vel is defined.
+///         The link specified by base_link must exist in the robot's URDF
+///         data.
 ///     ~cmd_vel_timeout (float, default: 0.5)
 ///         If cmd_vel_timeout is greater than zero and this controller does
 ///         not receive a velocity command for more than cmd_vel_timeout
@@ -77,21 +79,27 @@
 ///         odometry computation is disabled.  Unit: hertz.
 ///     ~odometry_frame (string, default: odom)
 ///         Odometry frame.
+///     ~base_frame (string, default: base_link)
+///         Base frame in the <odometry_frame>-to-<base_frame> transform
+///         provided by this controller. base_frame allows the controller to
+///         publish transforms from odometry_frame to a frame that is not a
+///         link in the robot's URDF data. For example, base_frame can be set
+///         to "base_footprint".
 ///     ~initial_x (float, default: 0.0)
-///         X coordinate of the base's initial position in the odometry frame.
-///         Unit: meter.
+///         X coordinate of the base frame's initial position in the odometry
+///         frame. Unit: meter.
 ///     ~initial_y (float, default: 0.0)
-///         Y coordinate of the base's initial position in the odometry frame.
-///         Unit: meter.
+///         Y coordinate of the base frame's initial position in the odometry
+///         frame. Unit: meter.
 ///     ~initial_yaw (float, default: 0.0)
-///         Initial orientation of the base in the odometry frame.
-///         Unit: radian.
+///         Initial orientation of the base frame in the odometry frame.
+///         Range: [-pi, pi]. Unit: radian.
 ///
 /// Provided tf Transforms:
 ///     <odometry_frame> to <base_frame>
-///         Specifies the base's pose in the odometry frame.
+///         Specifies the base frame's pose in the odometry frame.
 //
-// Copyright (c) 2013 Wunderkammer Laboratory
+// Copyright (c) 2013-2014 Wunderkammer Laboratory
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -265,7 +273,7 @@ class Wheel
 {
 public:
   Wheel(const KDL::Tree& tree,
-        const string& base_frame, const string& steer_frame,
+        const string& base_link, const string& steer_link,
         const shared_ptr<Joint> steer_joint,
         const shared_ptr<Joint> axle_joint,
         const double circ);
@@ -274,17 +282,17 @@ public:
   Vector2d getDeltaPos();
 
   void initJoints();
-  void ctrlSteering(const Duration& period);
-  void ctrlSteering(const double theta_desired, const Duration& period);
+  double ctrlSteering(const Duration& period);
+  double ctrlSteering(const double theta_desired, const Duration& period);
   void ctrlAxle(const double lin_speed, const Duration& period) const;
 
 private:
   static const double ZERO_AXLE_VEL_ANG;
 
-  void initPos(const KDL::Tree& tree, const string& base_frame);
+  void initPos(const KDL::Tree& tree, const string& base_link);
 
-  string steer_frame_;  // Steering frame
-  Vector2d pos_;        // Wheel's position in the base frame
+  string steer_link_; // Steering link
+  Vector2d pos_;      // Wheel's position in the base link's frame
 
   shared_ptr<Joint> steer_joint_;   // Steering joint
   shared_ptr<Joint> axle_joint_;
@@ -387,13 +395,13 @@ void PIDJoint::setVel(const double vel, const Duration& period)
 const double Wheel::ZERO_AXLE_VEL_ANG = M_PI / 8;
 
 Wheel::Wheel(const KDL::Tree& tree,
-             const string& base_frame, const string& steer_frame,
+             const string& base_link, const string& steer_link,
              const shared_ptr<Joint> steer_joint,
              const shared_ptr<Joint> axle_joint,
              const double circ)
 {
-  steer_frame_ = steer_frame;
-  initPos(tree, base_frame);
+  steer_link_ = steer_link;
+  initPos(tree, base_link);
 
   steer_joint_ = steer_joint;
   axle_joint_ = axle_joint;
@@ -408,7 +416,7 @@ Wheel::Wheel(const KDL::Tree& tree,
 
 // Return the difference between this wheel's current position and its
 // position when getDeltaPos() was last called. The returned vector is defined
-// in the base frame.
+// in the base link's frame.
 Vector2d Wheel::getDeltaPos()
 {
   const double theta_axle = axle_joint_->getPos();
@@ -425,14 +433,18 @@ void Wheel::initJoints()
   axle_joint_->init();
 }
 
-// Maintain the position of this wheel's steering joint.
-void Wheel::ctrlSteering(const Duration& period)
+// Maintain the position of this wheel's steering joint. Return a linear speed
+// gain value based on the difference between the desired steering angle and
+// the actual steering angle.
+double Wheel::ctrlSteering(const Duration& period)
 {
-  ctrlSteering(last_theta_steer_desired_, period);
+  return ctrlSteering(last_theta_steer_desired_, period);
 }
 
 // Control this wheel's steering joint. theta_desired range: [-pi, pi].
-void Wheel::ctrlSteering(const double theta_desired, const Duration& period)
+// Return a linear speed gain value based on the difference between the
+// desired steering angle and the actual steering angle.
+double Wheel::ctrlSteering(const double theta_desired, const Duration& period)
 {
   last_theta_steer_desired_ = theta_desired;
 
@@ -459,8 +471,7 @@ void Wheel::ctrlSteering(const double theta_desired, const Duration& period)
   }
 
   steer_joint_->setPos(theta, period);
-  axle_vel_gain_ *= 1 - hermite(fabs(theta - theta_steer_) /
-                                ZERO_AXLE_VEL_ANG);
+  return 1 - hermite(fabs(theta - theta_steer_) / ZERO_AXLE_VEL_ANG);
 }
 
 // Control this wheel's axle joint.
@@ -471,13 +482,13 @@ void Wheel::ctrlAxle(const double lin_speed, const Duration& period) const
 }
 
 // Initialize pos_.
-void Wheel::initPos(const KDL::Tree& tree, const string& base_frame)
+void Wheel::initPos(const KDL::Tree& tree, const string& base_link)
 {
   KDL::Chain chain;
-  if (!tree.getChain(base_frame, steer_frame_, chain))
+  if (!tree.getChain(base_link, steer_link_, chain))
   {
-    throw runtime_error("No kinematic chain was found from \"" + base_frame +
-                        "\" to \"" + steer_frame_ + "\".");
+    throw runtime_error("No kinematic chain was found from \"" + base_link +
+                        "\" to \"" + steer_link_ + "\".");
   }
 
   const unsigned int num_joints = chain.getNrOfJoints();
@@ -489,8 +500,8 @@ void Wheel::initPos(const KDL::Tree& tree, const string& base_frame)
   KDL::Frame frame;
   if (solver.JntToCart(joint_positions, frame) < 0)
   {
-    throw runtime_error("The position of steering frame \"" + steer_frame_ +
-                        "\" in base frame \"" + base_frame +
+    throw runtime_error("The position of steering link \"" + steer_link_ +
+                        "\" in base link frame \"" + base_link +
                         "\" was not found.");
   }
   pos_ = Vector2d(frame.p.x(), frame.p.y());
@@ -634,7 +645,7 @@ private:
   };
 
   static const string DEF_ROBOT_DESC_NAME;
-  static const string DEF_BASE_FRAME;
+  static const string DEF_BASE_LINK;
   static const double DEF_CMD_VEL_TIMEOUT;
 
   static const double DEF_LIN_SPEED_LIMIT;
@@ -649,6 +660,7 @@ private:
 
   static const double DEF_ODOM_PUB_FREQ;
   static const string DEF_ODOM_FRAME;
+  static const string DEF_BASE_FRAME;
   static const double DEF_INIT_X;
   static const double DEF_INIT_Y;
   static const double DEF_INIT_YAW;
@@ -706,8 +718,8 @@ private:
   double last_odom_x_, last_odom_y_, last_odom_yaw_;
   // wheel_pos_ contains the positions of the wheel's steering axles.
   // The positions are relative to the centroid of the steering axle positions
-  // in the base frame. neg_wheel_centroid is the negative version of that
-  // centroid.
+  // in the base link's frame. neg_wheel_centroid is the negative version of
+  // that centroid.
   Eigen::Matrix2Xd wheel_pos_;
   Vector2d neg_wheel_centroid_;
   Eigen::MatrixX2d new_wheel_pos_;
@@ -718,7 +730,7 @@ private:
 
 const string SteeredWheelBaseController::DEF_ROBOT_DESC_NAME =
   "robot_description";
-const string SteeredWheelBaseController::DEF_BASE_FRAME = "base_link";
+const string SteeredWheelBaseController::DEF_BASE_LINK = "base_link";
 const double SteeredWheelBaseController::DEF_CMD_VEL_TIMEOUT = 0.5;
 
 const double SteeredWheelBaseController::DEF_LIN_SPEED_LIMIT = 1;
@@ -731,8 +743,9 @@ const double SteeredWheelBaseController::DEF_YAW_DECEL_LIMIT = -1;
 
 const double SteeredWheelBaseController::DEF_WHEEL_DIA_SCALE = 1;
 
-const double SteeredWheelBaseController::DEF_ODOM_PUB_FREQ = 30.0;
+const double SteeredWheelBaseController::DEF_ODOM_PUB_FREQ = 30;
 const string SteeredWheelBaseController::DEF_ODOM_FRAME = "odom";
+const string SteeredWheelBaseController::DEF_BASE_FRAME = "base_link";
 const double SteeredWheelBaseController::DEF_INIT_X = 0;
 const double SteeredWheelBaseController::DEF_INIT_Y = 0;
 const double SteeredWheelBaseController::DEF_INIT_YAW = 0;
@@ -872,8 +885,8 @@ init(EffortJointInterface *const eff_joint_iface,
   if (!kdl_parser::treeFromUrdfModel(urdf_model, model_tree))
     throw runtime_error("The kinematic tree could not be created.");
 
-  string base_frame;
-  ctrlr_nh.param("base_frame", base_frame, DEF_BASE_FRAME);
+  string base_link;
+  ctrlr_nh.param("base_link", base_link, DEF_BASE_LINK);
   double timeout;
   ctrlr_nh.param("cmd_vel_timeout", timeout, DEF_CMD_VEL_TIMEOUT);
   vel_cmd_timeout_enabled_ = timeout > 0;
@@ -940,7 +953,7 @@ init(EffortJointInterface *const eff_joint_iface,
       throw runtime_error("Steering joint \"" + steer_joint_name +
                           "\" was not found in the URDF data.");
     }
-    const string steer_frame = steer_joint->child_link_name;
+    const string steer_link = steer_joint->child_link_name;
 
     if (!wheel_params.hasMember("axle_joint"))
       throw runtime_error("An axle joint was not specified.");
@@ -980,7 +993,7 @@ init(EffortJointInterface *const eff_joint_iface,
     // Circumference
     const double circ = (2 * M_PI) * (wheel_dia_scale * dia) / 2;
 
-    wheels_.push_back(Wheel(model_tree, base_frame, steer_frame,
+    wheels_.push_back(Wheel(model_tree, base_link, steer_link,
                             getJoint(steer_joint_name, true,
                                      ctrlr_nh, urdf_model,
                                      eff_joint_iface, pos_joint_iface,
@@ -1016,8 +1029,9 @@ init(EffortJointInterface *const eff_joint_iface,
     neg_wheel_centroid_ = -centroid;
     new_wheel_pos_.resize(wheels_.size(), 2);
 
-    string odom_frame;
+    string odom_frame, base_frame;
     ctrlr_nh.param("odometry_frame", odom_frame, DEF_ODOM_FRAME);
+    ctrlr_nh.param("base_frame", base_frame, DEF_BASE_FRAME);
     odom_pub_.msg_.header.frame_id = odom_frame;
     odom_pub_.msg_.child_frame_id = base_frame;
     odom_pub_.msg_.pose.pose.position.z = 0;
@@ -1146,13 +1160,22 @@ void SteeredWheelBaseController::ctrlWheels(const Vector2d& lin_vel,
     if (lin_speed > 0)
     {
       // Point the wheels in the same direction.
+
       const Vector2d dir = lin_vel / lin_speed;
       const double theta =
         copysign(acos(dir.dot(SteeredWheelBaseController::X_DIR)), dir.y());
+
+      double min_speed_gain = 1;
       BOOST_FOREACH(Wheel& wheel, wheels_)
       {
-        wheel.ctrlSteering(theta, period);
-        wheel.ctrlAxle(lin_speed, period);
+        const double speed_gain = wheel.ctrlSteering(theta, period);
+        if (speed_gain < min_speed_gain)
+          min_speed_gain = speed_gain;
+      }
+      const double lin_speed_2 = min_speed_gain * lin_speed;
+      BOOST_FOREACH(Wheel& wheel, wheels_)
+      {
+        wheel.ctrlAxle(lin_speed_2, period);
       }
     }
     else
@@ -1181,11 +1204,14 @@ void SteeredWheelBaseController::ctrlWheels(const Vector2d& lin_vel,
       center.setZero();
     }
 
+    std::vector<double> radii;
+    double min_speed_gain = 1;
     BOOST_FOREACH(Wheel& wheel, wheels_)
     {
       Vector2d vec = wheel.pos();
       vec -= center;
       const double radius = vec.norm();
+      radii.push_back(radius);
       double theta;
       if (radius > 0)
       {
@@ -1199,8 +1225,16 @@ void SteeredWheelBaseController::ctrlWheels(const Vector2d& lin_vel,
         theta = 0;
       }
                         
-      wheel.ctrlSteering(theta, period);
-      wheel.ctrlAxle(yaw_vel * radius, period);
+      const double speed_gain = wheel.ctrlSteering(theta, period);
+      if (speed_gain < min_speed_gain)
+        min_speed_gain = speed_gain;
+    }
+
+    const double lin_speed_gain = min_speed_gain * yaw_vel;
+    size_t i = 0;
+    BOOST_FOREACH(Wheel& wheel, wheels_)
+    {
+      wheel.ctrlAxle(lin_speed_gain * radii[i++], period);
     }
   }
 }
