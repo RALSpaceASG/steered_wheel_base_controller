@@ -56,6 +56,20 @@
 ///         equal to zero, the yaw deceleration limit is disabled.
 ///         Unit: rad/s**2.
 ///
+///     ~full_axle_speed_angle (float, default: 0.7854)
+///         If the difference between a wheel's desired and measured steering
+///         angles is less than or equal to full_axle_speed_angle, the wheel's
+///         axle will rotate at the speed determined by the current velocity
+///         command, subject to the speed, acceleration, and deceleration
+///         limits. full_axle_speed_angle must be less than
+///         zero_axle_speed_angle. Range: [0, pi]. Unit: radian.
+///     ~zero_axle_speed_angle (float, default: 1.5708)
+///         If the difference between a wheel's desired and measured steering
+///         angles is greater than or equal to zero_axle_speed_angle, the
+///         wheel's axle will stop rotating, subject to the deceleration
+///         limits. zero_axle_speed_angle must be greater than
+///         full_axle_speed_angle. Range: [0, pi]. Unit: radian.
+///
 ///     ~wheels (sequence of mappings, default: empty)
 ///         Two or more steered wheels.
 ///
@@ -282,13 +296,13 @@ public:
   Vector2d getDeltaPos();
 
   void initJoints();
-  double ctrlSteering(const Duration& period);
-  double ctrlSteering(const double theta_desired, const Duration& period);
+  double ctrlSteering(const Duration& period, const double hermite_scale,
+                      const double hermite_offset);
+  double ctrlSteering(const double theta_desired, const Duration& period,
+                      const double hermite_scale, const double hermite_offset);
   void ctrlAxle(const double lin_speed, const Duration& period) const;
 
 private:
-  static const double ZERO_AXLE_VEL_ANG;
-
   void initPos(const KDL::Tree& tree, const string& base_link);
 
   string steer_link_; // Steering link
@@ -389,11 +403,6 @@ void PIDJoint::setVel(const double vel, const Duration& period)
   handle_.setCommand(pid_ctrlr_.computeCommand(error, period));
 }
 
-// Wheel axle velocities vary from full velocity (|steering angle| = 0) to
-// zero velocity (|steering angle| >= ZERO_AXLE_VEL_ANG).
-// ZERO_AXLE_VEL_ANG unit: radian.
-const double Wheel::ZERO_AXLE_VEL_ANG = M_PI / 8;
-
 Wheel::Wheel(const KDL::Tree& tree,
              const string& base_link, const string& steer_link,
              const shared_ptr<Joint> steer_joint,
@@ -436,15 +445,19 @@ void Wheel::initJoints()
 // Maintain the position of this wheel's steering joint. Return a linear speed
 // gain value based on the difference between the desired steering angle and
 // the actual steering angle.
-double Wheel::ctrlSteering(const Duration& period)
+double Wheel::ctrlSteering(const Duration& period, const double hermite_scale,
+                           const double hermite_offset)
 {
-  return ctrlSteering(last_theta_steer_desired_, period);
+  return ctrlSteering(last_theta_steer_desired_, period, hermite_scale,
+                      hermite_offset);
 }
 
 // Control this wheel's steering joint. theta_desired range: [-pi, pi].
 // Return a linear speed gain value based on the difference between the
 // desired steering angle and the actual steering angle.
-double Wheel::ctrlSteering(const double theta_desired, const Duration& period)
+double Wheel::ctrlSteering(const double theta_desired, const Duration& period,
+                           const double hermite_scale,
+                           const double hermite_offset)
 {
   last_theta_steer_desired_ = theta_desired;
 
@@ -471,7 +484,8 @@ double Wheel::ctrlSteering(const double theta_desired, const Duration& period)
   }
 
   steer_joint_->setPos(theta, period);
-  return 1 - hermite(fabs(theta - theta_steer_) / ZERO_AXLE_VEL_ANG);
+  return 1 - hermite(hermite_scale * (fabs(theta - theta_steer_) -
+                                      hermite_offset));
 }
 
 // Control this wheel's axle joint.
@@ -656,6 +670,9 @@ private:
   static const double DEF_YAW_ACCEL_LIMIT;
   static const double DEF_YAW_DECEL_LIMIT;
 
+  static const double DEF_FULL_AXLE_SPEED_ANG;
+  static const double DEF_ZERO_AXLE_SPEED_ANG;
+
   static const double DEF_WHEEL_DIA_SCALE;
 
   static const double DEF_ODOM_PUB_FREQ;
@@ -699,6 +716,8 @@ private:
   bool has_yaw_decel_limit_;
   double yaw_decel_limit_;
 
+  double hermite_scale_, hermite_offset_;
+
   Vector2d last_lin_vel_; // Last linear velocity. Unit: m/s.
   double last_yaw_vel_;   // Last yaw velocity. Unit: rad/s.
 
@@ -740,6 +759,9 @@ const double SteeredWheelBaseController::DEF_LIN_DECEL_LIMIT = -1;
 const double SteeredWheelBaseController::DEF_YAW_SPEED_LIMIT = 1;
 const double SteeredWheelBaseController::DEF_YAW_ACCEL_LIMIT = 1;
 const double SteeredWheelBaseController::DEF_YAW_DECEL_LIMIT = -1;
+
+const double SteeredWheelBaseController::DEF_FULL_AXLE_SPEED_ANG = 0.7854;
+const double SteeredWheelBaseController::DEF_ZERO_AXLE_SPEED_ANG = 1.5708;
 
 const double SteeredWheelBaseController::DEF_WHEEL_DIA_SCALE = 1;
 
@@ -912,6 +934,22 @@ init(EffortJointInterface *const eff_joint_iface,
   ctrlr_nh.param("yaw_deceleration_limit", yaw_decel_limit_,
                  DEF_YAW_DECEL_LIMIT);
   has_yaw_decel_limit_ = yaw_decel_limit_ > 0;
+
+  ctrlr_nh.param("full_axle_speed_angle", hermite_offset_,
+                 DEF_FULL_AXLE_SPEED_ANG);
+  if (hermite_offset_ < 0 || hermite_offset_ > M_PI)
+    throw runtime_error("full_axle_speed_angle must be in the range [0, pi].");
+  double zero_axle_speed_ang;
+  ctrlr_nh.param("zero_axle_speed_angle", zero_axle_speed_ang,
+                 DEF_ZERO_AXLE_SPEED_ANG);
+  if (zero_axle_speed_ang < 0 || zero_axle_speed_ang > M_PI)
+    throw runtime_error("zero_axle_speed_angle must be in the range [0, pi].");
+  if (hermite_offset_ >= zero_axle_speed_ang)
+  {
+    throw runtime_error("full_axle_speed_angle must be less than "
+                        "zero_axle_speed_angle.");
+  }
+  hermite_scale_ = 1 / (zero_axle_speed_ang - hermite_offset_);
 
   // Wheels
 
@@ -1168,7 +1206,8 @@ void SteeredWheelBaseController::ctrlWheels(const Vector2d& lin_vel,
       double min_speed_gain = 1;
       BOOST_FOREACH(Wheel& wheel, wheels_)
       {
-        const double speed_gain = wheel.ctrlSteering(theta, period);
+        const double speed_gain =
+          wheel.ctrlSteering(theta, period, hermite_scale_, hermite_offset_);
         if (speed_gain < min_speed_gain)
           min_speed_gain = speed_gain;
       }
@@ -1183,7 +1222,7 @@ void SteeredWheelBaseController::ctrlWheels(const Vector2d& lin_vel,
       // Stop wheel rotation.
       BOOST_FOREACH(Wheel& wheel, wheels_)
       {
-        wheel.ctrlSteering(period);
+        wheel.ctrlSteering(period, hermite_scale_, hermite_offset_);
         wheel.ctrlAxle(0, period);
       }
     }
@@ -1225,7 +1264,8 @@ void SteeredWheelBaseController::ctrlWheels(const Vector2d& lin_vel,
         theta = 0;
       }
                         
-      const double speed_gain = wheel.ctrlSteering(theta, period);
+      const double speed_gain =
+        wheel.ctrlSteering(theta, period, hermite_scale_, hermite_offset_);
       if (speed_gain < min_speed_gain)
         min_speed_gain = speed_gain;
     }
