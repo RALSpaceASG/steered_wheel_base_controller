@@ -166,6 +166,7 @@ using std::runtime_error;
 using std::set;
 using std::string;
 
+using boost::math::sign;
 using boost::shared_ptr;
 
 using Eigen::Affine2d;
@@ -1117,7 +1118,7 @@ enforceLinLimits(const Vector2d& desired_vel,
 
   Vector2d accel = (vel - last_lin_vel_) * inv_delta_t;
 
-  if (last_lin_vel_.dot(accel) >= 0)
+  if (accel.dot(last_lin_vel_) >= 0)
   {
     // Acceleration
 
@@ -1144,6 +1145,8 @@ enforceLinLimits(const Vector2d& desired_vel,
         vel = last_lin_vel_ + accel * delta_t;
       }
     }
+    if (vel.dot(last_lin_vel_) < 0)
+      vel = Vector2d(0, 0);
   }
 
   last_lin_vel_ = vel;
@@ -1160,8 +1163,9 @@ double SteeredWheelBaseController::enforceYawLimits(const double desired_vel,
 
   double accel = (vel - last_yaw_vel_) * inv_delta_t;
 
-  const double accel_sign = boost::math::sign(accel);
-  if (boost::math::sign(last_yaw_vel_) == accel_sign)
+  const double accel_sign = sign(accel);
+  const double last_yaw_vel_sign = sign(last_yaw_vel_);
+  if (accel_sign == last_yaw_vel_sign || last_yaw_vel_sign == 0)
   {
     // Acceleration
 
@@ -1180,6 +1184,8 @@ double SteeredWheelBaseController::enforceYawLimits(const double desired_vel,
       accel = accel_sign * yaw_decel_limit_;
       vel = last_yaw_vel_ + accel * delta_t;
     }
+    if (sign(vel) != last_yaw_vel_sign)
+      vel = 0;
   }
 
   last_yaw_vel_ = vel;
