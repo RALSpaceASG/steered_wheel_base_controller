@@ -222,7 +222,8 @@ class Joint
 {
 public:
   virtual ~Joint() {}
-  virtual void init() {}
+  virtual void init() = 0;
+  virtual void stop() = 0;
 
   bool isValidPos(const double pos) const
     {return pos >= lower_limit_ && pos <= upper_limit_;}
@@ -248,6 +249,7 @@ public:
     Joint(handle, urdf_joint) {}
 
   virtual void init();
+  virtual void stop();
   virtual void setPos(const double pos, const Duration& period);
   virtual void setVel(const double vel, const Duration& period);
 
@@ -263,6 +265,8 @@ public:
            const shared_ptr<const urdf::Joint> urdf_joint) :
     Joint(handle, urdf_joint) {}
 
+  virtual void init() {stop();}
+  virtual void stop();
   virtual void setVel(const double vel, const Duration& period);
 };
 
@@ -275,6 +279,7 @@ public:
            const NodeHandle& ctrlr_nh);
 
   virtual void init();
+  virtual void stop();
   virtual void setPos(const double pos, const Duration& period);
   virtual void setVel(const double vel, const Duration& period);
 
@@ -297,6 +302,7 @@ public:
   Vector2d getDeltaPos();
 
   void initJoints();
+  void stop() const;
   double ctrlSteering(const Duration& period, const double hermite_scale,
                       const double hermite_offset);
   double ctrlSteering(const double theta_desired, const Duration& period,
@@ -331,7 +337,14 @@ Joint::Joint(const JointHandle& handle,
 // Initialize this joint.
 void PosJoint::init()
 {
-  pos_ = handle_.getPosition();
+  pos_ = getPos();
+  stop();
+}
+
+// Stop this joint's motion.
+void PosJoint::stop()
+{
+  handle_.setCommand(getPos());
 }
 
 // Specify this joint's position.
@@ -346,6 +359,12 @@ void PosJoint::setVel(const double vel, const Duration& period)
 {
   pos_ += vel * period.toSec();
   handle_.setCommand(pos_);
+}
+
+// Stop this joint's motion.
+void VelJoint::stop()
+{
+  handle_.setCommand(0);
 }
 
 // Specify this joint's velocity.
@@ -371,12 +390,21 @@ PIDJoint::PIDJoint(const JointHandle& handle,
 void PIDJoint::init()
 {
   pid_ctrlr_.reset();
+  stop();
+}
+
+// Stop this joint's motion.
+void PIDJoint::stop()
+{
+  // The command passed to setCommand() might be an effort value or a
+  // velocity. In either case, the correct command to pass here is zero.
+  handle_.setCommand(0);
 }
 
 // Specify this joint's position.
 void PIDJoint::setPos(const double pos, const Duration& period)
 {
-  const double curr_pos = handle_.getPosition();
+  const double curr_pos = getPos();
 
   double error;
   switch (type_)
@@ -441,6 +469,13 @@ void Wheel::initJoints()
 {
   steer_joint_->init();
   axle_joint_->init();
+}
+
+// Stop this wheel's motion.
+void Wheel::stop() const
+{
+  steer_joint_->stop();
+  axle_joint_->stop();
 }
 
 // Maintain the position of this wheel's steering joint. Return a linear speed
@@ -646,6 +681,7 @@ public:
   // These are real-time safe.
   virtual void starting(const Time& time);
   virtual void update(const Time& time, const Duration& period);
+  virtual void stopping(const Time& time);
 
 private:
   struct VelCmd     // Velocity command
@@ -832,17 +868,14 @@ string SteeredWheelBaseController::getHardwareInterfaceType() const
 
 void SteeredWheelBaseController::starting(const Time& time)
 {
-  last_lin_vel_ = Vector2d(0, 0);
-  last_yaw_vel_ = 0;
-
   BOOST_FOREACH(Wheel& wheel, wheels_)
     wheel.initJoints();
 
+  last_lin_vel_ = Vector2d(0, 0);
+  last_yaw_vel_ = 0;
+
   if (comp_odom_)
   {
-    odom_to_base_ = init_odom_to_base_;
-    odom_affine_.setIdentity();
-
     last_odom_x_ = odom_to_base_.translation().x();
     last_odom_y_ = odom_to_base_.translation().y();
     last_odom_yaw_ = atan2(odom_to_base_(1, 0), odom_to_base_(0, 0));
@@ -889,6 +922,12 @@ void SteeredWheelBaseController::update(const Time& time,
   ctrlWheels(lin_vel, yaw_vel, period);
   if (comp_odom_)
     compOdometry(time, inv_delta_t);
+}
+
+void SteeredWheelBaseController::stopping(const Time& time)
+{
+  BOOST_FOREACH(Wheel& wheel, wheels_)
+    wheel.stop();
 }
 
 // Initialize this steered-wheel base controller.
@@ -1059,6 +1098,8 @@ init(EffortJointInterface *const eff_joint_iface,
     init_odom_to_base_.setIdentity();
     init_odom_to_base_.rotate(clamp(init_yaw, -M_PI, M_PI));
     init_odom_to_base_.translation() = Vector2d(init_x, init_y);
+    odom_to_base_ = init_odom_to_base_;
+    odom_affine_.setIdentity();
 
     wheel_pos_.resize(2, wheels_.size());
     for (size_t col = 0; col < wheels_.size(); col++)
