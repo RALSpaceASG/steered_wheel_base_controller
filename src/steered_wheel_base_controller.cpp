@@ -113,7 +113,7 @@
 ///     <odometry_frame> to <base_frame>
 ///         Specifies the base frame's pose in the odometry frame.
 //
-// Copyright (c) 2013-2014 Wunderkammer Laboratory
+// Copyright (c) 2013-2015 Wunderkammer Laboratory
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -770,8 +770,7 @@ private:
   Duration odom_pub_period_;    // Odometry publishing period
   Affine2d init_odom_to_base_;  // Initial odometry to base frame transform
   Affine2d odom_to_base_;       // Odometry to base frame transform
-  Affine2d odom_affine_;
-  double last_odom_x_, last_odom_y_, last_odom_yaw_;
+  Affine2d odom_rigid_transf_;
   // wheel_pos_ contains the positions of the wheel's steering axles.
   // The positions are relative to the centroid of the steering axle positions
   // in the base link's frame. neg_wheel_centroid is the negative version of
@@ -876,9 +875,6 @@ void SteeredWheelBaseController::starting(const Time& time)
 
   if (comp_odom_)
   {
-    last_odom_x_ = odom_to_base_.translation().x();
-    last_odom_y_ = odom_to_base_.translation().y();
-    last_odom_yaw_ = atan2(odom_to_base_(1, 0), odom_to_base_(0, 0));
     last_odom_pub_time_ = time;
     last_odom_tf_pub_time_ = time;
   }
@@ -1099,7 +1095,7 @@ init(EffortJointInterface *const eff_joint_iface,
     init_odom_to_base_.rotate(clamp(init_yaw, -M_PI, M_PI));
     init_odom_to_base_.translation() = Vector2d(init_x, init_y);
     odom_to_base_ = init_odom_to_base_;
-    odom_affine_.setIdentity();
+    odom_rigid_transf_.setIdentity();
 
     wheel_pos_.resize(2, wheels_.size());
     for (size_t col = 0; col < wheels_.size(); col++)
@@ -1345,10 +1341,10 @@ void SteeredWheelBaseController::compOdometry(const Time& time,
   if (rot.determinant() < 0)
     rot.col(1) *= -1;
 
-  odom_affine_.matrix().block(0, 0, 2, 2) = rot;
-  odom_affine_.translation() =
+  odom_rigid_transf_.matrix().block(0, 0, 2, 2) = rot;
+  odom_rigid_transf_.translation() =
     rot * neg_wheel_centroid_ + new_wheel_centroid.transpose();
-  odom_to_base_ = odom_to_base_ * odom_affine_;
+  odom_to_base_ = odom_to_base_ * odom_rigid_transf_;
 
   const double odom_x = odom_to_base_.translation().x();
   const double odom_y = odom_to_base_.translation().y();
@@ -1389,19 +1385,15 @@ void SteeredWheelBaseController::compOdometry(const Time& time,
     odom_pub_.msg_.pose.pose.orientation = orientation;
 
     odom_pub_.msg_.twist.twist.linear.x =
-      (odom_x - last_odom_x_) * inv_delta_t;
+      odom_rigid_transf_.translation().x() * inv_delta_t;
     odom_pub_.msg_.twist.twist.linear.y =
-      (odom_y - last_odom_y_) * inv_delta_t;
+      odom_rigid_transf_.translation().y() * inv_delta_t;
     odom_pub_.msg_.twist.twist.angular.z =
-      (odom_yaw - last_odom_yaw_) * inv_delta_t;
+      atan2(odom_rigid_transf_(1, 0), odom_rigid_transf_(0, 0)) * inv_delta_t;
 
     odom_pub_.unlockAndPublish();
     last_odom_pub_time_ = time;
   }
-
-  last_odom_x_ = odom_x;
-  last_odom_y_ = odom_y;
-  last_odom_yaw_ = odom_yaw;
 }
 
 } // namespace steered_wheel_base_controller
