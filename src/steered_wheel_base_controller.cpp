@@ -91,6 +91,9 @@
 ///     ~odometry_publishing_frequency (float, default: 30.0)
 ///         Odometry publishing frequency. If it is less than or equal to zero,
 ///         odometry computation is disabled.  Unit: hertz.
+///     ~publish_odometry_to_base_transform (bool, default: true)
+///         If "true," publish the transform from <odometry_frame> to
+///         <base_frame>. The transform is published to /tf.
 ///     ~odometry_frame (string, default: odom)
 ///         Odometry frame.
 ///     ~base_frame (string, default: base_link)
@@ -112,6 +115,8 @@
 /// Provided tf Transforms:
 ///     <odometry_frame> to <base_frame>
 ///         Specifies the base frame's pose in the odometry frame.
+///         This transform is provided only if odometry computation is enabled
+///         and publish_odometry_to_base_transform is "true."
 //
 // Copyright (c) 2013-2015 Wunderkammer Laboratory
 //
@@ -713,6 +718,7 @@ private:
   static const double DEF_WHEEL_DIA_SCALE;
 
   static const double DEF_ODOM_PUB_FREQ;
+  static const bool DEF_PUB_ODOM_TO_BASE;
   static const string DEF_ODOM_FRAME;
   static const string DEF_BASE_FRAME;
   static const double DEF_INIT_X;
@@ -767,6 +773,7 @@ private:
 
   // Odometry
   bool comp_odom_;              // Compute odometry
+  bool pub_odom_to_base_;       // Publish the odometry to base frame transform
   Duration odom_pub_period_;    // Odometry publishing period
   Affine2d init_odom_to_base_;  // Initial odometry to base frame transform
   Affine2d odom_to_base_;       // Odometry to base frame transform
@@ -802,6 +809,7 @@ const double SteeredWheelBaseController::DEF_ZERO_AXLE_SPEED_ANG = 1.5708;
 const double SteeredWheelBaseController::DEF_WHEEL_DIA_SCALE = 1;
 
 const double SteeredWheelBaseController::DEF_ODOM_PUB_FREQ = 30;
+const bool SteeredWheelBaseController::DEF_PUB_ODOM_TO_BASE = true;
 const string SteeredWheelBaseController::DEF_ODOM_FRAME = "odom";
 const string SteeredWheelBaseController::DEF_BASE_FRAME = "base_link";
 const double SteeredWheelBaseController::DEF_INIT_X = 0;
@@ -1086,6 +1094,8 @@ init(EffortJointInterface *const eff_joint_iface,
   if (comp_odom_)
   {
     odom_pub_period_ = Duration(1 / odom_pub_freq);
+    ctrlr_nh.param("publish_odometry_to_base_transform", pub_odom_to_base_,
+                   DEF_PUB_ODOM_TO_BASE);
 
     double init_x, init_y, init_yaw;
     ctrlr_nh.param("initial_x", init_x, DEF_INIT_X);
@@ -1116,13 +1126,16 @@ init(EffortJointInterface *const eff_joint_iface,
     odom_pub_.msg_.twist.twist.angular.y = 0;
     odom_pub_.init(ctrlr_nh, "odom", 1);
 
-    odom_tf_pub_.msg_.transforms.resize(1);
-    geometry_msgs::TransformStamped& odom_tf_trans =
-      odom_tf_pub_.msg_.transforms[0];
-    odom_tf_trans.header.frame_id = odom_pub_.msg_.header.frame_id;
-    odom_tf_trans.child_frame_id = odom_pub_.msg_.child_frame_id;
-    odom_tf_trans.transform.translation.z = 0;
-    odom_tf_pub_.init(ctrlr_nh, "/tf", 1);
+    if (pub_odom_to_base_)
+    {
+      odom_tf_pub_.msg_.transforms.resize(1);
+      geometry_msgs::TransformStamped& odom_tf_trans =
+        odom_tf_pub_.msg_.transforms[0];
+      odom_tf_trans.header.frame_id = odom_pub_.msg_.header.frame_id;
+      odom_tf_trans.child_frame_id = odom_pub_.msg_.child_frame_id;
+      odom_tf_trans.transform.translation.z = 0;
+      odom_tf_pub_.init(ctrlr_nh, "/tf", 1);
+    }
   }
 
   vel_cmd_sub_ = ctrlr_nh.subscribe("cmd_vel", 1,
@@ -1356,7 +1369,7 @@ void SteeredWheelBaseController::compOdometry(const Time& time,
   bool orientation_comped = false;
 
   // tf
-  if (time - last_odom_tf_pub_time_ >= odom_pub_period_ &&
+  if (pub_odom_to_base_ && time - last_odom_tf_pub_time_ >= odom_pub_period_ &&
       odom_tf_pub_.trylock())
   {
     orientation = tf::createQuaternionMsgFromYaw(odom_yaw);
