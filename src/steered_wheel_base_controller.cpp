@@ -111,6 +111,27 @@
 ///     ~initial_yaw (float, default: 0.0)
 ///         Initial orientation of the base frame in the odometry frame.
 ///         Range: [-pi, pi]. Unit: radian.
+///     ~x_sd (float, default: 0.0)
+///         Standard deviation of the x coordinate of the base frame's position
+///         in the odometry frame. x_sd must be greater than or equal to zero.
+///         Unit: meter.
+///     ~y_sd (float, default: 0.0)
+///         Standard deviation of the y coordinate of the base frame's position
+///         in the odometry frame. y_sd must be greater than or equal to zero.
+///         Unit: meter.
+///     ~yaw_sd (float, default: 0.0)
+///         Standard deviation of the yaw angle of the base frame's
+///         orientation in the odometry frame. yaw_sd must be greater than or
+///         equal to zero. Unit: radian.
+///     ~x_speed_sd (float, default: 0.0)
+///         Standard deviation of the base's x speed in the base frame.
+///         x_speed_sd must be greater than or equal to zero. Unit: m/s.
+///     ~y_speed_sd (float, default: 0.0)
+///         Standard deviation of the base's y speed in the base frame.
+///         y_speed_sd must be greater than or equal to zero. Unit: m/s.
+///     ~yaw_speed_sd (float, default: 0.0)
+///         Standard deviation of the base's yaw speed in the base frame.
+///         yaw_speed_sd must be greater than or equal to zero. Unit: rad/s.
 ///
 /// Provided tf Transforms:
 ///     <odometry_frame> to <base_frame>
@@ -724,6 +745,7 @@ private:
   static const double DEF_INIT_X;
   static const double DEF_INIT_Y;
   static const double DEF_INIT_YAW;
+  static const double DEF_SD;
 
   static const Vector2d X_DIR;
 
@@ -815,6 +837,7 @@ const string SteeredWheelBaseController::DEF_BASE_FRAME = "base_link";
 const double SteeredWheelBaseController::DEF_INIT_X = 0;
 const double SteeredWheelBaseController::DEF_INIT_Y = 0;
 const double SteeredWheelBaseController::DEF_INIT_YAW = 0;
+const double SteeredWheelBaseController::DEF_SD = 0;
 
 // X direction
 const Vector2d SteeredWheelBaseController::X_DIR = Vector2d::UnitX();
@@ -1101,6 +1124,15 @@ init(EffortJointInterface *const eff_joint_iface,
     ctrlr_nh.param("initial_x", init_x, DEF_INIT_X);
     ctrlr_nh.param("initial_y", init_y, DEF_INIT_Y);
     ctrlr_nh.param("initial_yaw", init_yaw, DEF_INIT_YAW);
+    double x_sd, y_sd, yaw_sd;
+    ctrlr_nh.param("x_sd", x_sd, DEF_SD);
+    ctrlr_nh.param("y_sd", y_sd, DEF_SD);
+    ctrlr_nh.param("yaw_sd", yaw_sd, DEF_SD);
+    double x_speed_sd, y_speed_sd, yaw_speed_sd;
+    ctrlr_nh.param("x_speed_sd", x_speed_sd, DEF_SD);
+    ctrlr_nh.param("y_speed_sd", y_speed_sd, DEF_SD);
+    ctrlr_nh.param("yaw_speed_sd", yaw_speed_sd, DEF_SD);
+
     init_odom_to_base_.setIdentity();
     init_odom_to_base_.rotate(clamp(init_yaw, -M_PI, M_PI));
     init_odom_to_base_.translation() = Vector2d(init_x, init_y);
@@ -1118,12 +1150,26 @@ init(EffortJointInterface *const eff_joint_iface,
     string odom_frame, base_frame;
     ctrlr_nh.param("odometry_frame", odom_frame, DEF_ODOM_FRAME);
     ctrlr_nh.param("base_frame", base_frame, DEF_BASE_FRAME);
+
     odom_pub_.msg_.header.frame_id = odom_frame;
     odom_pub_.msg_.child_frame_id = base_frame;
+
     odom_pub_.msg_.pose.pose.position.z = 0;
+
+    odom_pub_.msg_.pose.covariance.assign(0);
+    odom_pub_.msg_.pose.covariance[0] = x_sd * x_sd;
+    odom_pub_.msg_.pose.covariance[7] = y_sd * y_sd;
+    odom_pub_.msg_.pose.covariance[35] = yaw_sd * yaw_sd;
+
     odom_pub_.msg_.twist.twist.linear.z = 0;
     odom_pub_.msg_.twist.twist.angular.x = 0;
     odom_pub_.msg_.twist.twist.angular.y = 0;
+
+    odom_pub_.msg_.twist.covariance.assign(0);
+    odom_pub_.msg_.twist.covariance[0] = x_speed_sd * x_speed_sd;
+    odom_pub_.msg_.twist.covariance[7] = y_speed_sd * y_speed_sd;
+    odom_pub_.msg_.twist.covariance[35] = yaw_speed_sd * yaw_speed_sd;
+
     odom_pub_.init(ctrlr_nh, "odom", 1);
 
     if (pub_odom_to_base_)
