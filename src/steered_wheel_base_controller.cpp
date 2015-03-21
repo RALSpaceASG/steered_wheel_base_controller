@@ -101,7 +101,11 @@
 ///         provided by this controller. base_frame allows the controller to
 ///         publish transforms from odometry_frame to a frame that is not a
 ///         link in the robot's URDF data. For example, base_frame can be set
-///         to "base_footprint".
+///         to "base_footprint". This controller computes coordinates in
+///         <base_link> and they are not transformed into <base_frame>, so the
+///         transform from <base_link> to <base_frame> should consist a
+///         translation along the z axis only. The x and y translation values
+///         and all the rotation values should be zero.
 ///     ~initial_x (float, default: 0.0)
 ///         X coordinate of the base frame's initial position in the odometry
 ///         frame. Unit: meter.
