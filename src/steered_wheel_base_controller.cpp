@@ -255,7 +255,7 @@ public:
   virtual void init() = 0;
   virtual void stop() = 0;
 
-  bool isValidPos(const double pos);
+  bool isValidPos(const double pos) const;
   double getPos() const {return handle_.getPosition();}
   virtual void setPos(const double pos, const Duration& period) {}
 
@@ -266,8 +266,8 @@ protected:
         const shared_ptr<const urdf::Joint> urdf_joint);
 
   JointHandle handle_;
+  const bool is_continuous_;
   const double lower_limit_, upper_limit_;  // Unit: radian
-  bool check_joint_limit_;
 };
 
 // Position-controlled joint
@@ -358,17 +358,17 @@ private:
 
 Joint::Joint(const JointHandle& handle,
              const shared_ptr<const urdf::Joint> urdf_joint) :
-  handle_(handle), lower_limit_(urdf_joint->limits->lower),
-  upper_limit_(urdf_joint->limits->upper), check_joint_limit_(true)
+  handle_(handle), is_continuous_(urdf_joint->type == urdf::Joint::CONTINUOUS),
+  lower_limit_(urdf_joint->limits->lower),
+  upper_limit_(urdf_joint->limits->upper)
 {
   // Do nothing.
 }
 
-bool Joint::isValidPos(const double pos)
+bool Joint::isValidPos(const double pos) const
 {
-  if(!check_joint_limit_)
+  if (is_continuous_)
     return true;
-
   return pos >= lower_limit_ && pos <= upper_limit_;
 }
 
@@ -451,11 +451,9 @@ void PIDJoint::setPos(const double pos, const Duration& period)
       angles::shortest_angular_distance_with_limits(curr_pos, pos,
                                                     lower_limit_, upper_limit_,
                                                     error);
-      check_joint_limit_ = true;
       break;
     case urdf::Joint::CONTINUOUS:
       error = angles::shortest_angular_distance(curr_pos, pos);
-      check_joint_limit_ = false;
       break;
     default:
       error = pos - curr_pos;
