@@ -192,6 +192,10 @@
 
 #include <urdf/model.h>
 
+#include "steered_wheel_base_controller/joint_base.h"
+
+using namespace SWBC::JointTypes;
+
 using std::runtime_error;
 using std::set;
 using std::string;
@@ -248,35 +252,13 @@ double hermite(const double t)
   return (-2 * t + 3) * t * t;  // -2t**3 + 3t**2
 }
 
-class Joint
-{
-public:
-  virtual ~Joint() {}
-  virtual void init() = 0;
-  virtual void stop() = 0;
-
-  bool isValidPos(const double pos) const;
-  double getPos() const {return handle_.getPosition();}
-  virtual void setPos(const double pos, const Duration& period) {}
-
-  virtual void setVel(const double vel, const Duration& period) = 0;
-
-protected:
-  Joint(const JointHandle& handle,
-        const shared_ptr<const urdf::Joint> urdf_joint);
-
-  JointHandle handle_;
-  const bool is_continuous_;
-  const double lower_limit_, upper_limit_;  // Unit: radian
-};
-
 // Position-controlled joint 
-class PosJoint : public Joint
+class PosJoint : public JointBase
 {
 public:
   PosJoint(const JointHandle& handle,
            const shared_ptr<const urdf::Joint> urdf_joint) :
-    Joint(handle, urdf_joint) {}
+    JointBase(handle, urdf_joint) {}
 
   virtual void init();
   virtual void stop();
@@ -288,12 +270,12 @@ private:
 };
 
 // Velocity-controlled joint. VelJoint is used for axles only.
-class VelJoint : public Joint
+class VelJoint : public JointBase
 {
 public:
   VelJoint(const JointHandle& handle,
            const shared_ptr<const urdf::Joint> urdf_joint) :
-    Joint(handle, urdf_joint) {}
+    JointBase(handle, urdf_joint) {}
 
   virtual void init() {stop();}
   virtual void stop();
@@ -301,7 +283,7 @@ public:
 };
 
 // An object of class PIDJoint is a joint controlled by a PID controller.
-class PIDJoint : public Joint
+class PIDJoint : public JointBase
 {
 public:
   PIDJoint(const JointHandle& handle,
@@ -324,8 +306,8 @@ class Wheel
 public:
   Wheel(const KDL::Tree& tree,
         const string& base_link, const string& steer_link,
-        const shared_ptr<Joint> steer_joint,
-        const shared_ptr<Joint> axle_joint,
+        const shared_ptr<JointBase> steer_joint,
+        const shared_ptr<JointBase> axle_joint,
         const double circ);
 
   const Vector2d& pos() const {return pos_;}
@@ -345,8 +327,8 @@ private:
   string steer_link_; // Steering link
   Vector2d pos_;      // Wheel's position in the base link's frame
 
-  shared_ptr<Joint> steer_joint_;   // Steering joint
-  shared_ptr<Joint> axle_joint_;
+  shared_ptr<JointBase> steer_joint_;   // Steering joint
+  shared_ptr<JointBase> axle_joint_;
   double theta_steer_;              // Steering joint position
   double last_theta_steer_desired_; // Last desired steering joint position
   double last_theta_axle_;          // Last axle joint position
@@ -355,22 +337,6 @@ private:
   double inv_radius_;     // Inverse of radius_
   double axle_vel_gain_;  // Axle velocity gain
 };
-
-Joint::Joint(const JointHandle& handle,
-             const shared_ptr<const urdf::Joint> urdf_joint) :
-  handle_(handle), is_continuous_(urdf_joint->type == urdf::Joint::CONTINUOUS),
-  lower_limit_(urdf_joint->limits->lower),
-  upper_limit_(urdf_joint->limits->upper)
-{
-  // Do nothing.
-}
-
-bool Joint::isValidPos(const double pos) const
-{
-  if (is_continuous_)
-    return true;
-  return pos >= lower_limit_ && pos <= upper_limit_;
-}
 
 // Initialize this joint.
 void PosJoint::init()
@@ -414,7 +380,7 @@ void VelJoint::setVel(const double vel, const Duration& /* period */)
 PIDJoint::PIDJoint(const JointHandle& handle,
                    const shared_ptr<const urdf::Joint> urdf_joint,
                    const NodeHandle& ctrlr_nh) :
-  Joint(handle, urdf_joint), type_(urdf_joint->type)
+  JointBase(handle, urdf_joint), type_(urdf_joint->type)
 {
   const NodeHandle nh(ctrlr_nh, "pid_gains/" + handle.getName());
   if (!pid_ctrlr_.init(nh))
@@ -472,8 +438,8 @@ void PIDJoint::setVel(const double vel, const Duration& period)
 
 Wheel::Wheel(const KDL::Tree& tree,
              const string& base_link, const string& steer_link,
-             const shared_ptr<Joint> steer_joint,
-             const shared_ptr<Joint> axle_joint,
+             const shared_ptr<JointBase> steer_joint,
+             const shared_ptr<JointBase> axle_joint,
              const double circ)
 {
   steer_link_ = steer_link;
@@ -597,7 +563,7 @@ void Wheel::initPos(const KDL::Tree& tree, const string& base_link)
 
 // Create an object of class Joint that corresponds to the URDF joint specified
 // by joint_name.
-shared_ptr<Joint> getJoint(const string& joint_name, const bool is_steer_joint,
+shared_ptr<JointBase> getJoint(const string& joint_name, const bool is_steer_joint,
                            const NodeHandle& ctrlr_nh,
                            const urdf::Model& urdf_model,
                            EffortJointInterface *const eff_joint_iface,
@@ -628,7 +594,7 @@ shared_ptr<Joint> getJoint(const string& joint_name, const bool is_steer_joint,
                             "\" was not found in the URDF data.");
       }
 
-      shared_ptr<Joint> joint(new PIDJoint(handle, urdf_joint, ctrlr_nh));
+      shared_ptr<JointBase> joint(new PIDJoint(handle, urdf_joint, ctrlr_nh));
       return joint;
     }
   }
@@ -657,7 +623,7 @@ shared_ptr<Joint> getJoint(const string& joint_name, const bool is_steer_joint,
                             "\" was not found in the URDF data.");
       }
 
-      shared_ptr<Joint> joint(new PosJoint(handle, urdf_joint));
+      shared_ptr<JointBase> joint(new PosJoint(handle, urdf_joint));
       return joint;
     }
   }
@@ -688,10 +654,10 @@ shared_ptr<Joint> getJoint(const string& joint_name, const bool is_steer_joint,
 
       if (is_steer_joint)
       {
-        shared_ptr<Joint> joint(new PIDJoint(handle, urdf_joint, ctrlr_nh));
+        shared_ptr<JointBase> joint(new PIDJoint(handle, urdf_joint, ctrlr_nh));
         return joint;
       }
-      shared_ptr<Joint> joint(new VelJoint(handle, urdf_joint));
+      shared_ptr<JointBase> joint(new VelJoint(handle, urdf_joint));
       return joint;
     }
   }

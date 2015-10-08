@@ -32,7 +32,16 @@ find_package(catkin REQUIRED COMPONENTS
   urdf
 )
 
-catkin_package()
-include_directories(${catkin_INCLUDE_DIRS})
-add_library(${PROJECT_NAME} src/steered_wheel_base_controller.cpp)
+catkin_package(
+  INCLUDE_DIRS include
+  LIBRARIES ${PROJECT_NAME}
+)
+
+include_directories(include ${catkin_INCLUDE_DIRS})
+
+add_library(${PROJECT_NAME} 
+  src/steered_wheel_base_controller.cpp 
+  src/joint_base.cpp
+)
+
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES})
