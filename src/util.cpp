@@ -1,16 +1,17 @@
 #include "steered_wheel_base_controller/util.h"
 
-using std::set;
-using std::string;
-using std::runtime_error;
 using boost::shared_ptr;
-using namespace SWBC::joint_types;
-
-using ros::NodeHandle;
 using hardware_interface::EffortJointInterface;
 using hardware_interface::PositionJointInterface;
 using hardware_interface::VelocityJointInterface;
 using hardware_interface::JointHandle;
+using ros::NodeHandle;
+using std::set;
+using std::string;
+using std::runtime_error;
+using std::min;
+using std::max;
+using namespace SWBC::joint_types;
 
 namespace SWBC
 {
@@ -28,7 +29,7 @@ namespace SWBC
 
 		double clamp(const double val, const double min_val, const double max_val)
 		{
-			return std::min(std::max(val, min_val), max_val);
+			return min(max(val, min_val), max_val);
 		}
 
 		// Create an object of class Joint that corresponds to the URDF joint specified
