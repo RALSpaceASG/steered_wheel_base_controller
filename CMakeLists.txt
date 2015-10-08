@@ -46,6 +46,7 @@ add_library(${PROJECT_NAME}
   src/vel_joint.cpp
   src/pid_joint.cpp
   src/wheel.cpp
+  src/util.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES})
