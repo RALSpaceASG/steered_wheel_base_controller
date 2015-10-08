@@ -195,10 +195,12 @@
 #include "steered_wheel_base_controller/joint_base.h"
 #include "steered_wheel_base_controller/pos_joint.h"
 #include "steered_wheel_base_controller/vel_joint.h"
+#include "steered_wheel_base_controller/pid_joint.h"
 
 using SWBC::joint_types::JointBase;
 using SWBC::joint_types::PosJoint;
 using SWBC::joint_types::VelJoint;
+using SWBC::joint_types::PIDJoint;
 
 using std::runtime_error;
 using std::set;
@@ -256,24 +258,6 @@ double hermite(const double t)
   return (-2 * t + 3) * t * t;  // -2t**3 + 3t**2
 }
 
-// An object of class PIDJoint is a joint controlled by a PID controller.
-class PIDJoint : public JointBase
-{
-public:
-  PIDJoint(const JointHandle& handle,
-           const shared_ptr<const urdf::Joint> urdf_joint,
-           const NodeHandle& ctrlr_nh);
-
-  virtual void init();
-  virtual void stop();
-  virtual void setPos(const double pos, const Duration& period);
-  virtual void setVel(const double vel, const Duration& period);
-
-private:
-  const int type_;  // URDF joint type
-  control_toolbox::Pid pid_ctrlr_;
-};
-
 // An object of class Wheel is a steered wheel.
 class Wheel
 {
@@ -312,83 +296,24 @@ private:
   double axle_vel_gain_;  // Axle velocity gain
 };
 
-PIDJoint::PIDJoint(const JointHandle& handle,
-                   const shared_ptr<const urdf::Joint> urdf_joint,
-                   const NodeHandle& ctrlr_nh) :
-  JointBase(handle, urdf_joint), type_(urdf_joint->type)
+Wheel::Wheel(	const KDL::Tree& tree,
+				const string& base_link, const string& steer_link,
+				const shared_ptr<JointBase> steer_joint,
+				const shared_ptr<JointBase> axle_joint,
+				const double circ)
 {
-  const NodeHandle nh(ctrlr_nh, "pid_gains/" + handle.getName());
-  if (!pid_ctrlr_.init(nh))
-  {
-    throw runtime_error("No PID gain values for \"" + handle.getName() +
-                        "\" were found.");
-  }
-}
+	steer_link_ = steer_link;
+	initPos(tree, base_link);
 
-// Initialize this joint.
-void PIDJoint::init()
-{
-  pid_ctrlr_.reset();
-  stop();
-}
+	steer_joint_ = steer_joint;
+	axle_joint_ = axle_joint;
+	theta_steer_ = steer_joint_->getPos();
+	last_theta_steer_desired_ = theta_steer_;
+	last_theta_axle_ = axle_joint_->getPos();
 
-// Stop this joint's motion.
-void PIDJoint::stop()
-{
-  // The command passed to setCommand() might be an effort value or a
-  // velocity. In either case, the correct command to pass here is zero.
-  handle_.setCommand(0);
-}
-
-// Specify this joint's position.
-void PIDJoint::setPos(const double pos, const Duration& period)
-{
-  const double curr_pos = getPos();
-
-  double error;
-  switch (type_)
-  {
-    case urdf::Joint::REVOLUTE:
-      angles::shortest_angular_distance_with_limits(curr_pos, pos,
-                                                    lower_limit_, upper_limit_,
-                                                    error);
-      break;
-    case urdf::Joint::CONTINUOUS:
-      error = angles::shortest_angular_distance(curr_pos, pos);
-      break;
-    default:
-      error = pos - curr_pos;
-      break;
-  }
-
-  handle_.setCommand(pid_ctrlr_.computeCommand(error, period));
-}
-
-// Specify this joint's velocity.
-void PIDJoint::setVel(const double vel, const Duration& period)
-{
-  const double error = vel - handle_.getVelocity();
-  handle_.setCommand(pid_ctrlr_.computeCommand(error, period));
-}
-
-Wheel::Wheel(const KDL::Tree& tree,
-             const string& base_link, const string& steer_link,
-             const shared_ptr<JointBase> steer_joint,
-             const shared_ptr<JointBase> axle_joint,
-             const double circ)
-{
-  steer_link_ = steer_link;
-  initPos(tree, base_link);
-
-  steer_joint_ = steer_joint;
-  axle_joint_ = axle_joint;
-  theta_steer_ = steer_joint_->getPos();
-  last_theta_steer_desired_ = theta_steer_;
-  last_theta_axle_ = axle_joint_->getPos();
-
-  radius_ = circ / (2 * M_PI);
-  inv_radius_ = 1 / radius_;
-  axle_vel_gain_ = 0;
+	radius_ = circ / (2 * M_PI);
+	inv_radius_ = 1 / radius_;
+	axle_vel_gain_ = 0;
 }
 
 // Return the difference between this wheel's current position and its

@@ -44,6 +44,7 @@ add_library(${PROJECT_NAME}
   src/joint_base.cpp
   src/pos_joint.cpp
   src/vel_joint.cpp
+  src/pid_joint.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES})
