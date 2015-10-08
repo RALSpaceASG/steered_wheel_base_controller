@@ -194,9 +194,11 @@
 
 #include "steered_wheel_base_controller/joint_base.h"
 #include "steered_wheel_base_controller/pos_joint.h"
+#include "steered_wheel_base_controller/vel_joint.h"
 
 using SWBC::joint_types::JointBase;
 using SWBC::joint_types::PosJoint;
+using SWBC::joint_types::VelJoint;
 
 using std::runtime_error;
 using std::set;
@@ -254,19 +256,6 @@ double hermite(const double t)
   return (-2 * t + 3) * t * t;  // -2t**3 + 3t**2
 }
 
-// Velocity-controlled joint. VelJoint is used for axles only.
-class VelJoint : public JointBase
-{
-public:
-  VelJoint(const JointHandle& handle,
-           const shared_ptr<const urdf::Joint> urdf_joint) :
-    JointBase(handle, urdf_joint) {}
-
-  virtual void init() {stop();}
-  virtual void stop();
-  virtual void setVel(const double vel, const Duration& period);
-};
-
 // An object of class PIDJoint is a joint controlled by a PID controller.
 class PIDJoint : public JointBase
 {
@@ -322,18 +311,6 @@ private:
   double inv_radius_;     // Inverse of radius_
   double axle_vel_gain_;  // Axle velocity gain
 };
-
-// Stop this joint's motion.
-void VelJoint::stop()
-{
-  handle_.setCommand(0);
-}
-
-// Specify this joint's velocity.
-void VelJoint::setVel(const double vel, const Duration& /* period */)
-{
-  handle_.setCommand(vel);
-}
 
 PIDJoint::PIDJoint(const JointHandle& handle,
                    const shared_ptr<const urdf::Joint> urdf_joint,

@@ -43,6 +43,7 @@ add_library(${PROJECT_NAME}
   src/steered_wheel_base_controller.cpp 
   src/joint_base.cpp
   src/pos_joint.cpp
+  src/vel_joint.cpp
 )
 
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES})
