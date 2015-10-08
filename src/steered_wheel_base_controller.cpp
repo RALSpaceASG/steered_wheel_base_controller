@@ -270,7 +270,7 @@ protected:
   const double lower_limit_, upper_limit_;  // Unit: radian
 };
 
-// Position-controlled joint
+// Position-controlled joint 
 class PosJoint : public Joint
 {
 public:
