@@ -8,7 +8,7 @@
 
 namespace SWBC
 {
-	namespace JointTypes
+	namespace joint_types
 	{
 		class JointBase
 		{

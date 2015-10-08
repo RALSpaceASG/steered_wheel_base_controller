@@ -5,7 +5,7 @@ using boost::shared_ptr;
 
 namespace SWBC
 {
-	namespace JointTypes
+	namespace joint_types
 	{		
 		JointBase::JointBase(const JointHandle& handle, const shared_ptr<const urdf::Joint> urdf_joint) 
 				: handle_(handle), is_continuous_(urdf_joint->type == urdf::Joint::CONTINUOUS),

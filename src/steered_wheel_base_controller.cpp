@@ -194,7 +194,7 @@
 
 #include "steered_wheel_base_controller/joint_base.h"
 
-using namespace SWBC::JointTypes;
+using SWBC::joint_types::JointBase;
 
 using std::runtime_error;
 using std::set;
