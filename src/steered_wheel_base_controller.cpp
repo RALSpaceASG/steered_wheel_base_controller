@@ -193,8 +193,10 @@
 #include <urdf/model.h>
 
 #include "steered_wheel_base_controller/joint_base.h"
+#include "steered_wheel_base_controller/pos_joint.h"
 
 using SWBC::joint_types::JointBase;
+using SWBC::joint_types::PosJoint;
 
 using std::runtime_error;
 using std::set;
@@ -251,23 +253,6 @@ double hermite(const double t)
     return 1;
   return (-2 * t + 3) * t * t;  // -2t**3 + 3t**2
 }
-
-// Position-controlled joint 
-class PosJoint : public JointBase
-{
-public:
-  PosJoint(const JointHandle& handle,
-           const shared_ptr<const urdf::Joint> urdf_joint) :
-    JointBase(handle, urdf_joint) {}
-
-  virtual void init();
-  virtual void stop();
-  virtual void setPos(const double pos, const Duration& period);
-  virtual void setVel(const double vel, const Duration& period);
-
-private:
-  double pos_;
-};
 
 // Velocity-controlled joint. VelJoint is used for axles only.
 class VelJoint : public JointBase
@@ -337,33 +322,6 @@ private:
   double inv_radius_;     // Inverse of radius_
   double axle_vel_gain_;  // Axle velocity gain
 };
-
-// Initialize this joint.
-void PosJoint::init()
-{
-  pos_ = getPos();
-  stop();
-}
-
-// Stop this joint's motion.
-void PosJoint::stop()
-{
-  handle_.setCommand(getPos());
-}
-
-// Specify this joint's position.
-void PosJoint::setPos(const double pos, const Duration& /* period */)
-{
-  pos_ = pos;
-  handle_.setCommand(pos_);
-}
-
-// Specify this joint's velocity.
-void PosJoint::setVel(const double vel, const Duration& period)
-{
-  pos_ += vel * period.toSec();
-  handle_.setCommand(pos_);
-}
 
 // Stop this joint's motion.
 void VelJoint::stop()
