@@ -18,8 +18,8 @@ limitations under the License.
 -->
 
 <library path="lib/libsteered_wheel_base_controller">
-  <class name="steered_wheel_base_controller/SteeredWheelBaseController"
-         type="steered_wheel_base_controller::SteeredWheelBaseController"
+  <class name="SWBC/SteeredWheelBaseController"
+         type="SWBC::SteeredWheelBaseController"
          base_class_type="controller_interface::ControllerBase">
     <description>
       SteeredWheelBaseController is a base controller for mobile robots.
