@@ -1,5 +1,5 @@
-#ifndef _SWBC_POS_JOINT_H_
-#define _SWBC_POS_JOINT_H_
+#ifndef _SWBC_JOINT_TYPES_POS_JOINT_H_
+#define _SWBC_JOINT_TYPES_POS_JOINT_H_
 
 #include <boost/shared_ptr.hpp>
 #include <ros/ros.h>

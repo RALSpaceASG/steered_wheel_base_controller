@@ -65,7 +65,7 @@
   <run_depend>urdf</run_depend>
 
   <export>
-    <controller_interface plugin="${prefix}/sw_base_controller_plugin.xml"/>
+    <controller_interface plugin="${prefix}/plugins/sw_base_controller_plugin.xml"/>
     <architecture_independent/>
   </export>
 </package>

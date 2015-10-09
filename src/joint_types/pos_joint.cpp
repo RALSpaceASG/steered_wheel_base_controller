@@ -1,4 +1,4 @@
-#include "steered_wheel_base_controller/pos_joint.h"
+#include "steered_wheel_base_controller/joint_types/pos_joint.h"
 
 using ros::Duration;
 

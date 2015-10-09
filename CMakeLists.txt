@@ -42,9 +42,9 @@ include_directories(include ${catkin_INCLUDE_DIRS})
 add_library(${PROJECT_NAME} 
   src/steered_wheel_base_controller.cpp 
   src/joint_base.cpp
-  src/pos_joint.cpp
-  src/vel_joint.cpp
-  src/pid_joint.cpp
+  src/joint_types/pos_joint.cpp
+  src/joint_types/vel_joint.cpp
+  src/joint_types/pid_joint.cpp
   src/wheel.cpp
   src/util.cpp
 )

@@ -1,5 +1,5 @@
-#ifndef _SWBC_PID_JOINT_H_
-#define _SWBC_PID_JOINT_H_
+#ifndef _SWBC_JOINT_TYPES_PID_JOINT_H_
+#define _SWBC_JOINT_TYPES_PID_JOINT_H_
 
 #include <angles/angles.h>
 #include <boost/shared_ptr.hpp>

@@ -5,9 +5,9 @@
 #include <ros/ros.h>
 
 #include "steered_wheel_base_controller/joint_base.h"
-#include "steered_wheel_base_controller/pos_joint.h"
-#include "steered_wheel_base_controller/vel_joint.h"
-#include "steered_wheel_base_controller/pid_joint.h"
+#include "steered_wheel_base_controller/joint_types/pos_joint.h"
+#include "steered_wheel_base_controller/joint_types/vel_joint.h"
+#include "steered_wheel_base_controller/joint_types/pid_joint.h"
 
 namespace SWBC
 {

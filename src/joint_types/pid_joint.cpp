@@ -1,4 +1,4 @@
-#include "steered_wheel_base_controller/pid_joint.h"
+#include "steered_wheel_base_controller/joint_types/pid_joint.h"
 
 using ros::Duration;
 using ros::NodeHandle;
