@@ -17,16 +17,6 @@ namespace SWBC
 {
 	namespace util
 	{
-		void addClaimedResources(	hardware_interface::HardwareInterface *const hw_iface,
-									set<string>& claimed_resources)
-		{
-			if (hw_iface == NULL)
-			return;
-			const set<string> claims = hw_iface->getClaims();
-			claimed_resources.insert(claims.begin(), claims.end());
-			hw_iface->clearClaims();
-		}
-
 		double clamp(const double val, const double min_val, const double max_val)
 		{
 			return min(max(val, min_val), max_val);

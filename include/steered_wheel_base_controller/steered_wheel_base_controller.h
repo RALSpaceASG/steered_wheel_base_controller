@@ -13,7 +13,7 @@
 #include <boost/shared_ptr.hpp>
 
 #include <control_toolbox/pid.h>
-#include <controller_interface/controller_base.h>
+#include <controller_interface/multi_interface_controller.h>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -44,15 +44,14 @@
 namespace SWBC
 {
 	// Steered-wheel base controller
-	class SteeredWheelBaseController : public controller_interface::ControllerBase
+	class SteeredWheelBaseController : public controller_interface::MultiInterfaceController<
+																hardware_interface::EffortJointInterface,
+																hardware_interface::PositionJointInterface,
+																hardware_interface::VelocityJointInterface>
 	{
 	public:
 	  SteeredWheelBaseController();
 
-	  // These are not real-time safe.
-	  virtual bool initRequest(hardware_interface::RobotHW *const robot_hw,
-							   ros::NodeHandle& root_nh, ros::NodeHandle& ctrlr_nh,
-							   std::set<std::string>& claimed_resources);
 	  virtual std::string getHardwareInterfaceType() const;
 
 	  // These are real-time safe.

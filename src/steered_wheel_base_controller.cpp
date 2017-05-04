@@ -201,50 +201,6 @@ namespace SWBC
 	  state_ = CONSTRUCTED;
 	}
 
-	bool SteeredWheelBaseController::initRequest(RobotHW *const robot_hw,
-												 NodeHandle& /* root_nh */,
-												 NodeHandle& ctrlr_nh,
-												 set<string>& claimed_resources)
-	{
-	  if (state_ != CONSTRUCTED)
-	  {
-		ROS_ERROR("The steered-wheel base controller could not be created.");
-		return false;
-	  }
-
-	  EffortJointInterface *const eff_joint_iface =
-		robot_hw->get<EffortJointInterface>();
-	  PositionJointInterface *const pos_joint_iface =
-		robot_hw->get<PositionJointInterface>();
-	  VelocityJointInterface *const vel_joint_iface =
-		robot_hw->get<VelocityJointInterface>();
-
-	  if (eff_joint_iface != NULL)
-		eff_joint_iface->clearClaims();
-	  if (pos_joint_iface != NULL)
-		pos_joint_iface->clearClaims();
-	  if (vel_joint_iface != NULL)
-		vel_joint_iface->clearClaims();
-
-	  try
-	  {
-		init(eff_joint_iface, pos_joint_iface, vel_joint_iface, ctrlr_nh);
-	  }
-	  catch (const std::exception& ex)
-	  {
-		ROS_ERROR_STREAM(ex.what());
-		return false;
-	  }
-
-	  claimed_resources.clear();
-	  addClaimedResources(eff_joint_iface, claimed_resources);
-	  addClaimedResources(pos_joint_iface, claimed_resources);
-	  addClaimedResources(vel_joint_iface, claimed_resources);
-
-	  state_ = INITIALIZED;
-	  return true;
-	}
-
 	string SteeredWheelBaseController::getHardwareInterfaceType() const
 	{
 	  return "";

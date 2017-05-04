@@ -3,3 +3,8 @@
 .cproject
 .project
 *~
+
+*.swp
+build_isolated
+devel_isolated
+.catkin_workspace

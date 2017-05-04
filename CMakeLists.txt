@@ -17,6 +17,8 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(steered_wheel_base_controller)
 
+include ("../cmake_modules/CMakeOpt.cmake")
+
 find_package(catkin REQUIRED COMPONENTS
   angles
   control_toolbox
