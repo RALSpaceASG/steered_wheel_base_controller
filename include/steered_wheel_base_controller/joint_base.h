@@ -1,7 +1,6 @@
 #ifndef _SWBC_JOINT_BASE_H_
 #define _SWBC_JOINT_BASE_H_
 
-//#include <boost/shared_ptr.hpp>
 #include <ros/ros.h>
 #include <hardware_interface/joint_command_interface.h>
 #include <urdf/model.h>
