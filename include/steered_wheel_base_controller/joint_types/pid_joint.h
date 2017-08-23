@@ -2,7 +2,6 @@
 #define _SWBC_JOINT_TYPES_PID_JOINT_H_
 
 #include <angles/angles.h>
-#include <boost/shared_ptr.hpp>
 #include <control_toolbox/pid.h>
 #include <ros/ros.h>
 #include <hardware_interface/joint_command_interface.h>
@@ -19,7 +18,7 @@ namespace SWBC
 		{
 			public:
 				PIDJoint(const hardware_interface::JointHandle& handle,
-				const boost::shared_ptr<const urdf::Joint> urdf_joint,
+				const std::shared_ptr<const urdf::Joint> urdf_joint,
 				const ros::NodeHandle& ctrlr_nh);
 
 				virtual void init();

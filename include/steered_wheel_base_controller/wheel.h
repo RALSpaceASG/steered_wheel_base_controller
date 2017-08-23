@@ -1,7 +1,6 @@
 #ifndef _SWBC_WHEEL_H_
 #define _SWBC_WHEEL_H_
 
-#include <boost/shared_ptr.hpp>
 #include <Eigen/Geometry>
 #include <Eigen/Core>
 #include <ros/ros.h>
@@ -18,8 +17,8 @@ namespace SWBC
 		public:
 			Wheel(const KDL::Tree& tree,
 			const std::string& base_link, const std::string& steer_link,
-			const boost::shared_ptr<joint_types::JointBase> steer_joint,
-			const boost::shared_ptr<joint_types::JointBase> axle_joint,
+			const std::shared_ptr<joint_types::JointBase> steer_joint,
+			const std::shared_ptr<joint_types::JointBase> axle_joint,
 			const double circ);
 
 			const Eigen::Vector2d& pos() const {return pos_;}
@@ -40,8 +39,8 @@ namespace SWBC
 			std::string steer_link_; // Steering link
 			Eigen::Vector2d pos_;      // Wheel's position in the base link's frame
 
-			boost::shared_ptr<joint_types::JointBase> steer_joint_;   // Steering joint
-			boost::shared_ptr<joint_types::JointBase> axle_joint_;
+			std::shared_ptr<joint_types::JointBase> steer_joint_;   // Steering joint
+			std::shared_ptr<joint_types::JointBase> axle_joint_;
 			double theta_steer_;              // Steering joint position
 			double last_theta_steer_desired_; // Last desired steering joint position
 			double last_theta_axle_;          // Last axle joint position

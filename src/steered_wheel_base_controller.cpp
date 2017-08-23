@@ -157,6 +157,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <boost/foreach.hpp>
 #include "steered_wheel_base_controller/steered_wheel_base_controller.h"
 
 using SWBC::joint_types::JointBase;
@@ -171,7 +172,7 @@ using std::set;
 using std::string;
 
 using boost::math::sign;
-using boost::shared_ptr;
+using std::shared_ptr;
 
 using Eigen::Affine2d;
 using Eigen::Matrix2d;

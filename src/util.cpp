@@ -1,6 +1,6 @@
 #include "steered_wheel_base_controller/util.h"
 
-using boost::shared_ptr;
+using std::shared_ptr;
 using hardware_interface::EffortJointInterface;
 using hardware_interface::PositionJointInterface;
 using hardware_interface::VelocityJointInterface;

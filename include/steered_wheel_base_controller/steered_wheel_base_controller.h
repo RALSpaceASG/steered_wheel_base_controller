@@ -8,16 +8,7 @@
 #include <string>
 #include <vector>
 
-#include <boost/foreach.hpp>
-#include <boost/math/special_functions/sign.hpp>
-#include <boost/shared_ptr.hpp>
-
-#include <control_toolbox/pid.h>
 #include <controller_interface/multi_interface_controller.h>
-
-#include <Eigen/Core>
-#include <Eigen/Geometry>
-#include <Eigen/SVD>
 
 #include <geometry_msgs/Twist.h>
 #include <hardware_interface/joint_command_interface.h>

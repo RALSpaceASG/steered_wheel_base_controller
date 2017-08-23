@@ -1,7 +1,7 @@
 #ifndef _SWBC_JOINT_BASE_H_
 #define _SWBC_JOINT_BASE_H_
 
-#include <boost/shared_ptr.hpp>
+//#include <boost/shared_ptr.hpp>
 #include <ros/ros.h>
 #include <hardware_interface/joint_command_interface.h>
 #include <urdf/model.h>
@@ -25,7 +25,7 @@ namespace SWBC
 
 			protected:
 				JointBase(const hardware_interface::JointHandle& handle,
-				const boost::shared_ptr<const urdf::Joint> urdf_joint);
+				const std::shared_ptr<const urdf::Joint> urdf_joint);
 
 				hardware_interface::JointHandle handle_;
 				const bool is_continuous_;

@@ -1,7 +1,7 @@
 #include "steered_wheel_base_controller/joint_base.h"
 
 using hardware_interface::JointHandle;
-using boost::shared_ptr;
+using std::shared_ptr;
 
 namespace SWBC
 {

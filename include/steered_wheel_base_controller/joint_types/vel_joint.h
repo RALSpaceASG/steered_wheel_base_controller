@@ -1,7 +1,6 @@
 #ifndef _SWBC_JOINT_TYPES_VEL_JOINT_H_
 #define _SWBC_JOINT_TYPES_VEL_JOINT_H_
 
-#include <boost/shared_ptr.hpp>
 #include <ros/ros.h>
 #include <hardware_interface/joint_command_interface.h>
 #include <urdf/model.h>
@@ -17,7 +16,7 @@ namespace SWBC
 		{
 			public:
 				VelJoint(const hardware_interface::JointHandle& handle,
-				const boost::shared_ptr<const urdf::Joint> urdf_joint) 
+				const std::shared_ptr<const urdf::Joint> urdf_joint) 
 					: JointBase(handle, urdf_joint) {}
 
 				virtual void init() {stop();}

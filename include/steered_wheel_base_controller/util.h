@@ -15,7 +15,7 @@ namespace SWBC
 	namespace util
 	{
 		double clamp(const double val, const double min_val, const double max_val);
-		boost::shared_ptr<joint_types::JointBase> getJoint(	const std::string& joint_name, const bool is_steer_joint,
+		std::shared_ptr<joint_types::JointBase> getJoint(	const std::string& joint_name, const bool is_steer_joint,
 										const ros::NodeHandle& ctrlr_nh,
 										const urdf::Model& urdf_model,
 										hardware_interface::EffortJointInterface *const eff_joint_iface,

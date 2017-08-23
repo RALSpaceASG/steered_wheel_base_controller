@@ -2,7 +2,7 @@
 
 using ros::Duration;
 using ros::NodeHandle;
-using boost::shared_ptr;
+using std::shared_ptr;
 using hardware_interface::JointHandle;
 using std::runtime_error;
 

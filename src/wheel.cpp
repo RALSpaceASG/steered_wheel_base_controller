@@ -1,6 +1,6 @@
 #include "steered_wheel_base_controller/wheel.h"
 
-using boost::shared_ptr;
+using std::shared_ptr;
 using Eigen::Vector2d;
 using ros::Duration;
 using std::string;
