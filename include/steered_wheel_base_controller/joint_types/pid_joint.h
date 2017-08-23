@@ -18,7 +18,7 @@ namespace SWBC
 		{
 			public:
 				PIDJoint(const hardware_interface::JointHandle& handle,
-				const std::shared_ptr<const urdf::Joint> urdf_joint,
+				urdf::JointConstSharedPtr urdf_joint,
 				const ros::NodeHandle& ctrlr_nh);
 
 				virtual void init();

@@ -25,7 +25,7 @@ namespace SWBC
 
 			protected:
 				JointBase(const hardware_interface::JointHandle& handle,
-				const std::shared_ptr<const urdf::Joint> urdf_joint);
+				urdf::JointConstSharedPtr urdf_joint);
 
 				hardware_interface::JointHandle handle_;
 				const bool is_continuous_;

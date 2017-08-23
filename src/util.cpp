@@ -47,7 +47,7 @@ namespace SWBC
 
 				if (handle_found)
 				{
-					const shared_ptr<const urdf::Joint> urdf_joint =
+					urdf::JointConstSharedPtr urdf_joint =
 					urdf_model.getJoint(joint_name);
 					if (urdf_joint == NULL)
 					{
@@ -76,7 +76,7 @@ namespace SWBC
 
 				if (handle_found)
 				{
-					const shared_ptr<const urdf::Joint> urdf_joint =
+					urdf::JointConstSharedPtr urdf_joint =
 					urdf_model.getJoint(joint_name);
 					if (urdf_joint == NULL)
 					{
@@ -105,7 +105,7 @@ namespace SWBC
 
 				if (handle_found)
 				{
-					const shared_ptr<const urdf::Joint> urdf_joint =
+					urdf::JointConstSharedPtr urdf_joint =
 					urdf_model.getJoint(joint_name);
 					if (urdf_joint == NULL)
 					{

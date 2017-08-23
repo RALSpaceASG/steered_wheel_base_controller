@@ -362,7 +362,7 @@ namespace SWBC
 		  throw runtime_error("An invalid steering joint was specified.");
 		}
 		const string steer_joint_name = xml_steer_joint;
-		const shared_ptr<const urdf::Joint> steer_joint =
+		urdf::JointConstSharedPtr steer_joint =
 		  urdf_model.getJoint(steer_joint_name);
 		if (steer_joint == NULL)
 		{

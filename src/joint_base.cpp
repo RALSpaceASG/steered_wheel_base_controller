@@ -7,7 +7,7 @@ namespace SWBC
 {
 	namespace joint_types
 	{		
-		JointBase::JointBase(const JointHandle& handle, const shared_ptr<const urdf::Joint> urdf_joint) 
+		JointBase::JointBase(const JointHandle& handle, urdf::JointConstSharedPtr urdf_joint) 
 				: handle_(handle), is_continuous_(urdf_joint->type == urdf::Joint::CONTINUOUS),
 				lower_limit_(urdf_joint->limits->lower),
 				upper_limit_(urdf_joint->limits->upper)

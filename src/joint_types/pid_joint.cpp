@@ -11,7 +11,7 @@ namespace SWBC
 	namespace joint_types
 	{	
 		PIDJoint::PIDJoint(	const JointHandle& handle,
-							const shared_ptr<const urdf::Joint> urdf_joint,
+							urdf::JointConstSharedPtr urdf_joint,
 							const NodeHandle& ctrlr_nh) :
 								JointBase(handle, urdf_joint), type_(urdf_joint->type)
 		{

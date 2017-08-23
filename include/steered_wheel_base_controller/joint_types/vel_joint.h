@@ -16,7 +16,7 @@ namespace SWBC
 		{
 			public:
 				VelJoint(const hardware_interface::JointHandle& handle,
-				const std::shared_ptr<const urdf::Joint> urdf_joint) 
+				urdf::JointConstSharedPtr urdf_joint)
 					: JointBase(handle, urdf_joint) {}
 
 				virtual void init() {stop();}
