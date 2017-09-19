@@ -198,7 +198,7 @@ namespace SWBC
 {	
 	SteeredWheelBaseController::SteeredWheelBaseController()
 	{
-	  state_ = CONSTRUCTED;
+		state_ = CONSTRUCTED;
 	}
 
 	string SteeredWheelBaseController::getHardwareInterfaceType() const
