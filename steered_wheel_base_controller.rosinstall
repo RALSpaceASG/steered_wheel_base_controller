@@ -1,0 +1,2 @@
+- git: {local-name: steered_wheel_base_controller, uri: 'https://github.com/FRC900/steered_wheel_base_controller.git'}
+
