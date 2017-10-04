@@ -9,8 +9,8 @@ namespace SWBC
 	{		
 		JointBase::JointBase(const JointHandle& handle, urdf::JointConstSharedPtr urdf_joint)
 				: handle_(handle), is_continuous_(urdf_joint->type == urdf::Joint::CONTINUOUS),
-				lower_limit_(urdf_joint->limits->lower),
-				upper_limit_(urdf_joint->limits->upper)
+				lower_limit_(urdf_joint->type != urdf::Joint::CONTINUOUS ? urdf_joint->limits->lower : 0),
+				upper_limit_(urdf_joint->type != urdf::Joint::CONTINUOUS ? urdf_joint->limits->upper : 0)
 		{
 		// Do nothing.
 		}
