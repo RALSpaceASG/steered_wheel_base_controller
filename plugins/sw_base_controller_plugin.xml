@@ -20,7 +20,7 @@ limitations under the License.
 <library path="lib/libsteered_wheel_base_controller">
   <class name="SWBC/SteeredWheelBaseController"
          type="SWBC::SteeredWheelBaseController"
-         base_class_type="controller_interface::MultiInterfaceController">
+         base_class_type="controller_interface::ControllerBase">
     <description>
       SteeredWheelBaseController is a base controller for mobile robots.
       It works with bases that have two or more independently-steerable driven
