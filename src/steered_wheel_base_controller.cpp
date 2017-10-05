@@ -208,7 +208,7 @@ namespace SWBC
 
 	void SteeredWheelBaseController::starting(const Time& time)
 	{
-	  for (auto wheel : wheels_)
+	  for (auto &wheel : wheels_)
 		wheel.initJoints();
 
 	  last_lin_vel_ = Vector2d(0, 0);
@@ -246,7 +246,7 @@ namespace SWBC
 	  else
 	  {
 		// Too much time has elapsed since the last velocity command was received.
-		// Stop the robot.
+		// Stop the robot
 		desired_lin_vel.setZero();
 		desired_yaw_vel = 0;
 	  }
@@ -263,7 +263,7 @@ namespace SWBC
 
 	void SteeredWheelBaseController::stopping(const Time& time)
 	{
-		for (auto wheel : wheels_)
+		for (auto &wheel : wheels_)
 			wheel.stop();
 	}
 
@@ -617,7 +617,7 @@ namespace SWBC
 			copysign(acos(dir.dot(SteeredWheelBaseController::X_DIR)), dir.y());
 
 		  double min_speed_gain = 1;
-		  for (auto wheel : wheels_)
+		  for (auto &wheel : wheels_)
 		  {
 			const double speed_gain =
 			  wheel.ctrlSteering(theta, period, hermite_scale_, hermite_offset_);
@@ -625,7 +625,7 @@ namespace SWBC
 			  min_speed_gain = speed_gain;
 		  }
 		  const double lin_speed_2 = min_speed_gain * lin_speed;
-		  for (auto wheel : wheels_)
+		  for (auto &wheel : wheels_)
 		  {
 			wheel.ctrlAxle(lin_speed_2, period);
 		  }
@@ -633,7 +633,7 @@ namespace SWBC
 		else
 		{
 		  // Stop wheel rotation.
-		  for (auto wheel : wheels_)
+		  for (auto &wheel : wheels_)
 		  {
 			wheel.ctrlSteering(period, hermite_scale_, hermite_offset_);
 			wheel.ctrlAxle(0, period);
@@ -658,7 +658,7 @@ namespace SWBC
 
 		std::vector<double> radii;
 		double min_speed_gain = 1;
-		for (auto wheel : wheels_)
+		for (auto &wheel : wheels_)
 		{
 		  Vector2d vec = wheel.pos();
 		  vec -= center;
@@ -685,7 +685,7 @@ namespace SWBC
 
 		const double lin_speed_gain = min_speed_gain * yaw_vel;
 		size_t i = 0;
-		for (auto wheel : wheels_)
+		for (auto &wheel : wheels_)
 		{
 		  wheel.ctrlAxle(lin_speed_gain * radii[i++], period);
 		}
