@@ -261,7 +261,7 @@ namespace SWBC
 		compOdometry(time, inv_delta_t);
 	}
 
-	void SteeredWheelBaseController::stopping(const Time& time)
+	void SteeredWheelBaseController::stopping(const Time& /*time*/)
 	{
 		for (auto &wheel : wheels_)
 			wheel.stop();

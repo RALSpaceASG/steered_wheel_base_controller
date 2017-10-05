@@ -19,7 +19,7 @@ namespace SWBC
 				bool isValidPos(const double pos) const;
 				double getPos() const {return handle_.getPosition();}
 
-				virtual void setPos(const double pos, const ros::Duration& period) {}
+				virtual void setPos(const double /*pos*/, const ros::Duration& /*period*/) {}
 				virtual void setVel(const double vel, const ros::Duration& period) = 0;
 
 			protected:
