@@ -90,10 +90,7 @@ namespace SWBC
 
 	  static const Eigen::Vector2d X_DIR;
 
-	  void init(hardware_interface::EffortJointInterface *const eff_joint_iface,
-				hardware_interface::PositionJointInterface *const pos_joint_iface,
-				hardware_interface::VelocityJointInterface *const vel_joint_iface,
-				ros::NodeHandle& ctrlr_nh);
+	  bool init(hardware_interface::RobotHW *robot_hw, ros::NodeHandle& ctrlr_nh);
 	  void velCmdCB(const geometry_msgs::TwistConstPtr& vel_cmd);
 
 	  Eigen::Vector2d enforceLinLimits(const Eigen::Vector2d& desired_vel,

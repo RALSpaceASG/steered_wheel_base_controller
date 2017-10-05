@@ -268,12 +268,12 @@ namespace SWBC
 	}
 
 	// Initialize this steered-wheel base controller.
-	void SteeredWheelBaseController::
-	init(EffortJointInterface *const eff_joint_iface,
-		 PositionJointInterface *const pos_joint_iface,
-		 VelocityJointInterface *const vel_joint_iface,
-		 NodeHandle& ctrlr_nh)
+	bool SteeredWheelBaseController:: init(RobotHW *robot_hw, NodeHandle& ctrlr_nh)
 	{
+	  EffortJointInterface   *const eff_joint_iface = robot_hw->get<EffortJointInterface>();
+	  PositionJointInterface *const pos_joint_iface = robot_hw->get<PositionJointInterface>();
+	  VelocityJointInterface *const vel_joint_iface = robot_hw->get<VelocityJointInterface>();
+
 	  string robot_desc_name;
 	  ctrlr_nh.param("robot_description_name", robot_desc_name,
 					 DEF_ROBOT_DESC_NAME);
@@ -497,6 +497,7 @@ namespace SWBC
 	  vel_cmd_sub_ = ctrlr_nh.subscribe("cmd_vel", 1,
 										&SteeredWheelBaseController::velCmdCB,
 										this);
+	  return true;
 	}
 
 	// Velocity command callback
