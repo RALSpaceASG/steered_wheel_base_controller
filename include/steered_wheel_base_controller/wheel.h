@@ -16,10 +16,10 @@ namespace SWBC
 	{
 		public:
 			Wheel(const KDL::Tree& tree,
-			const std::string& base_link, const std::string& steer_link,
-			const std::shared_ptr<joint_types::JointBase> steer_joint,
-			const std::shared_ptr<joint_types::JointBase> axle_joint,
-			const double circ);
+				  const std::string& base_link, const std::string& steer_link,
+				  const std::shared_ptr<joint_types::JointBase> steer_joint,
+				  const std::shared_ptr<joint_types::JointBase> axle_joint,
+				  const double circ);
 
 			const Eigen::Vector2d& pos() const {return pos_;}
 			Eigen::Vector2d getDeltaPos();
@@ -27,9 +27,9 @@ namespace SWBC
 			void initJoints();
 			void stop() const;
 			double ctrlSteering(const ros::Duration& period, const double hermite_scale,
-			const double hermite_offset);
+								const double hermite_offset);
 			double ctrlSteering(const double theta_desired, const ros::Duration& period,
-			const double hermite_scale, const double hermite_offset);
+								const double hermite_scale, const double hermite_offset);
 			void ctrlAxle(const double lin_speed, const ros::Duration& period) const;
 
 		private:
