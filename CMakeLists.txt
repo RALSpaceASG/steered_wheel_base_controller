@@ -17,7 +17,8 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(steered_wheel_base_controller)
 
-include ("../cmake_modules/CMakeOpt.cmake")
+# this code uses c++11 features
+add_compile_options(-std=c++11)
 
 find_package(catkin REQUIRED COMPONENTS
   angles
