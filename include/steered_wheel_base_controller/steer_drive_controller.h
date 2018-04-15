@@ -35,13 +35,13 @@
 namespace SWBC
 {
 	// Steered-wheel base controller
-	class SteeredWheelBaseController : public controller_interface::MultiInterfaceController<
+	class SteerDriveController : public controller_interface::MultiInterfaceController<
 																hardware_interface::EffortJointInterface,
 																hardware_interface::PositionJointInterface,
 																hardware_interface::VelocityJointInterface>
 	{
 	public:
-	  SteeredWheelBaseController();
+	  SteerDriveController();
 
 	  virtual std::string getHardwareInterfaceType() const;
 
@@ -150,35 +150,35 @@ namespace SWBC
 	  realtime_tools::RealtimePublisher<tf::tfMessage> odom_tf_pub_;
 	  ros::Time last_odom_pub_time_, last_odom_tf_pub_time_;
 	};
-	
-	const std::string SteeredWheelBaseController::DEF_ROBOT_DESC_NAME = "robot_description";
-	const std::string SteeredWheelBaseController::DEF_BASE_LINK = "base_link";
-	const double SteeredWheelBaseController::DEF_CMD_VEL_TIMEOUT = 0.5;
 
-	const double SteeredWheelBaseController::DEF_LIN_SPEED_LIMIT = 0.7854;
-	const double SteeredWheelBaseController::DEF_LIN_ACCEL_LIMIT = -1;
-	const double SteeredWheelBaseController::DEF_LIN_DECEL_LIMIT = -1;
+	const std::string SteerDriveController::DEF_ROBOT_DESC_NAME = "robot_description";
+	const std::string SteerDriveController::DEF_BASE_LINK = "base_link";
+	const double SteerDriveController::DEF_CMD_VEL_TIMEOUT = 0.5;
 
-	const double SteeredWheelBaseController::DEF_YAW_SPEED_LIMIT = 1;
-	const double SteeredWheelBaseController::DEF_YAW_ACCEL_LIMIT = 1;
-	const double SteeredWheelBaseController::DEF_YAW_DECEL_LIMIT = -1;
+	const double SteerDriveController::DEF_LIN_SPEED_LIMIT = 0.7854;
+	const double SteerDriveController::DEF_LIN_ACCEL_LIMIT = -1;
+	const double SteerDriveController::DEF_LIN_DECEL_LIMIT = -1;
 
-	const double SteeredWheelBaseController::DEF_FULL_AXLE_SPEED_ANG = 0.7854;
-	const double SteeredWheelBaseController::DEF_ZERO_AXLE_SPEED_ANG = 1.5708;
+	const double SteerDriveController::DEF_YAW_SPEED_LIMIT = 1;
+	const double SteerDriveController::DEF_YAW_ACCEL_LIMIT = 1;
+	const double SteerDriveController::DEF_YAW_DECEL_LIMIT = -1;
 
-	const double SteeredWheelBaseController::DEF_WHEEL_DIA_SCALE = 1;
+	const double SteerDriveController::DEF_FULL_AXLE_SPEED_ANG = 0.7854;
+	const double SteerDriveController::DEF_ZERO_AXLE_SPEED_ANG = 1.5708;
 
-	const double SteeredWheelBaseController::DEF_ODOM_PUB_FREQ = 30;
-	const bool SteeredWheelBaseController::DEF_PUB_ODOM_TO_BASE = true;
-	const std::string SteeredWheelBaseController::DEF_ODOM_FRAME = "odom";
-	const std::string SteeredWheelBaseController::DEF_BASE_FRAME = "base_link";
-	const double SteeredWheelBaseController::DEF_INIT_X = 0;
-	const double SteeredWheelBaseController::DEF_INIT_Y = 0;
-	const double SteeredWheelBaseController::DEF_INIT_YAW = 0;
-	const double SteeredWheelBaseController::DEF_SD = 0;
+	const double SteerDriveController::DEF_WHEEL_DIA_SCALE = 1;
+
+	const double SteerDriveController::DEF_ODOM_PUB_FREQ = 30;
+	const bool SteerDriveController::DEF_PUB_ODOM_TO_BASE = true;
+	const std::string SteerDriveController::DEF_ODOM_FRAME = "odom";
+	const std::string SteerDriveController::DEF_BASE_FRAME = "base_link";
+	const double SteerDriveController::DEF_INIT_X = 0;
+	const double SteerDriveController::DEF_INIT_Y = 0;
+	const double SteerDriveController::DEF_INIT_YAW = 0;
+	const double SteerDriveController::DEF_SD = 0;
 
 	// X direction
-	const Eigen::Vector2d SteeredWheelBaseController::X_DIR = Eigen::Vector2d::UnitX();
+	const Eigen::Vector2d SteerDriveController::X_DIR = Eigen::Vector2d::UnitX();
 }
 
 #endif

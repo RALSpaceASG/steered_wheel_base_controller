@@ -1,8 +1,8 @@
-/// \file steered_wheel_base_controller.cpp
+/// \file steer_drive_controller.cpp
 ///
 /// \brief Steered-wheel base controller
 ///
-/// This file contains the source code for SteeredWheelBaseController,
+/// This file contains the source code for SteerDriveController,
 /// a base controller for mobile robots. It works with bases that have two or
 /// more independently-steerable driven wheels and zero or more omnidirectional
 /// passive wheels (e.g. swivel casters).
@@ -146,7 +146,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "steered_wheel_base_controller/steered_wheel_base_controller.h"
+#include "steered_wheel_base_controller/steer_drive_controller.h"
 
 using SWBC::joint_types::JointBase;
 using SWBC::joint_types::PosJoint;
@@ -184,18 +184,18 @@ using ros::Time;
 using XmlRpc::XmlRpcValue;
 
 namespace SWBC
-{	
-	SteeredWheelBaseController::SteeredWheelBaseController()
+{
+	SteerDriveController::SteerDriveController()
 	{
 		state_ = CONSTRUCTED;
 	}
 
-	string SteeredWheelBaseController::getHardwareInterfaceType() const
+	string SteerDriveController::getHardwareInterfaceType() const
 	{
 	  return "";
 	}
 
-	void SteeredWheelBaseController::starting(const Time& time)
+	void SteerDriveController::starting(const Time& time)
 	{
 	  for (auto &wheel : wheels_)
 		wheel.initJoints();
@@ -216,7 +216,7 @@ namespace SWBC
 	  vel_cmd_buf_.initRT(vel_cmd_);
 	}
 
-	void SteeredWheelBaseController::update(const Time& time,
+	void SteerDriveController::update(const Time& time,
 											const Duration& period)
 	{
 	  const double delta_t = period.toSec();
@@ -250,14 +250,14 @@ namespace SWBC
 		compOdometry(time, inv_delta_t);
 	}
 
-	void SteeredWheelBaseController::stopping(const Time& /*time*/)
+	void SteerDriveController::stopping(const Time& /*time*/)
 	{
 		for (auto &wheel : wheels_)
 			wheel.stop();
 	}
 
 	// Initialize this steered-wheel base controller.
-	bool SteeredWheelBaseController:: init(RobotHW *robot_hw, NodeHandle& ctrlr_nh)
+	bool SteerDriveController:: init(RobotHW *robot_hw, NodeHandle& ctrlr_nh)
 	{
 	  EffortJointInterface   *const eff_joint_iface = robot_hw->get<EffortJointInterface>();
 	  PositionJointInterface *const pos_joint_iface = robot_hw->get<PositionJointInterface>();
@@ -487,13 +487,13 @@ namespace SWBC
 	  }
 
 	  vel_cmd_sub_ = ctrlr_nh.subscribe("cmd_vel", 1,
-										&SteeredWheelBaseController::velCmdCB,
+										&SteerDriveController::velCmdCB,
 										this);
 	  return true;
 	}
 
 	// Velocity command callback
-	void SteeredWheelBaseController::velCmdCB(const TwistConstPtr& vel_cmd)
+	void SteerDriveController::velCmdCB(const TwistConstPtr& vel_cmd)
 	{
 	  vel_cmd_.x_vel = vel_cmd->linear.x;
 	  vel_cmd_.y_vel = vel_cmd->linear.y;
@@ -503,7 +503,7 @@ namespace SWBC
 	}
 
 	// Enforce linear motion limits.
-	Vector2d SteeredWheelBaseController::
+	Vector2d SteerDriveController::
 	enforceLinLimits(const Vector2d& desired_vel,
 					 const double delta_t, const double inv_delta_t)
 	{
@@ -552,7 +552,7 @@ namespace SWBC
 	  return vel;
 	}
 
-	double SteeredWheelBaseController::enforceYawLimits(const double desired_vel,
+	double SteerDriveController::enforceYawLimits(const double desired_vel,
 														const double delta_t,
 														const double inv_delta_t)
 	{
@@ -592,7 +592,7 @@ namespace SWBC
 	}
 
 	// Control the wheels.
-	void SteeredWheelBaseController::ctrlWheels(const Vector2d& lin_vel,
+	void SteerDriveController::ctrlWheels(const Vector2d& lin_vel,
 												const double yaw_vel,
 												const Duration& period)
 	{
@@ -658,14 +658,14 @@ namespace SWBC
 		  {
 			vec /= radius;
 			theta =
-			  copysign(acos(vec.dot(SteeredWheelBaseController::X_DIR)), vec.y()) +
+			  copysign(acos(vec.dot(SteerDriveController::X_DIR)), vec.y()) +
 			  M_PI_2;
 		  }
 		  else
 		  {
 			theta = 0;
 		  }
-							
+
 		  const double speed_gain =
 			wheel.ctrlSteering(theta, period, hermite_scale_, hermite_offset_);
 		  if (speed_gain < min_speed_gain)
@@ -683,7 +683,7 @@ namespace SWBC
 	}
 
 	// Compute odometry.
-	void SteeredWheelBaseController::compOdometry(const Time& time,
+	void SteerDriveController::compOdometry(const Time& time,
 												  const double inv_delta_t)
 	{
 	  // Compute the rigid transform from wheel_pos_ to new_wheel_pos_.
@@ -755,6 +755,6 @@ namespace SWBC
 		last_odom_pub_time_ = time;
 	  }
 	}
-} // namespace steered_wheel_base_controller
+} // namespace steer_drive_controller
 
-PLUGINLIB_EXPORT_CLASS(SWBC::SteeredWheelBaseController, controller_interface::ControllerBase)
+PLUGINLIB_EXPORT_CLASS(SWBC::SteerDriveController, controller_interface::ControllerBase)
