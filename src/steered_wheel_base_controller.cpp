@@ -10,10 +10,10 @@
 /// Subscribed Topics:
 ///     cmd_vel (geometry_msgs/Twist)
 ///         Velocity command, defined in the frame specified by the base_link
-///         parameter. The linear.x and linear.y fields specify the base's
-///         desired linear velocity, measured in meters per second.
-///         The angular.z field specifies the base's desired angular velocity,
-///         measured in radians per second.
+///         parameter. The linear.x field specifies the base's desired drive
+///         velocity, measured in meters per second.
+///         The angular.z field specifies the base's desired steering direction,
+///         measured as a the steering angle in radians of a "virtual" wheel.
 ///
 /// Published Topics:
 ///     odom (nav_msgs/Odometry)
@@ -44,17 +44,6 @@
 ///         Linear deceleration limit. If linear_deceleration_limit is less
 ///         than or equal to zero, the linear deceleration limit is disabled.
 ///         Unit: m/s**2.
-///
-///     ~yaw_speed_limit (float, default: 1.0)
-///         Yaw speed limit. If yaw_speed_limit is less than zero, the yaw
-///         speed limit is disabled. Unit: rad/s.
-///     ~yaw_acceleration_limit (float, default: 1.0)
-///         Yaw acceleration limit. If yaw_acceleration_limit is less than
-///         zero, the yaw acceleration limit is disabled. Unit: rad/s**2.
-///     ~yaw_deceleration_limit (float, default: -1.0)
-///         Yaw deceleration limit. If yaw_deceleration_limit is less than or
-///         equal to zero, the yaw deceleration limit is disabled.
-///         Unit: rad/s**2.
 ///
 ///     ~full_axle_speed_angle (float, default: 0.7854)
 ///         If the difference between a wheel's desired and measured steering
@@ -327,6 +316,9 @@ namespace SWBC
 							"zero_axle_speed_angle.");
 	  }
 	  hermite_scale_ = 1 / (zero_axle_speed_ang - hermite_offset_);
+
+	  if (!ctrlr_nh.getParam("wheelbase", wheelbase_))
+		throw runtime_error("The wheelbase must be specified");
 
 	  // Wheels
 
@@ -604,17 +596,16 @@ namespace SWBC
 												const double yaw_vel,
 												const Duration& period)
 	{
-	  const double lin_speed = lin_vel.norm();
+	  const double drive_speed = lin_vel.x();
+	  const double steer_ang = yaw_vel;
 
-	  if (yaw_vel == 0)
+	  if (steer_ang == 0)
 	  {
-		if (lin_speed > 0)
+		if (abs(drive_speed) > 0)
 		{
-		  // Point the wheels in the same direction.
+		  // Point the wheels in the forward direction
 
-		  const Vector2d dir = lin_vel / lin_speed;
-		  const double theta =
-			copysign(acos(dir.dot(SteeredWheelBaseController::X_DIR)), dir.y());
+		  const double theta = 0;
 
 		  double min_speed_gain = 1;
 		  for (auto &wheel : wheels_)
@@ -624,10 +615,10 @@ namespace SWBC
 			if (speed_gain < min_speed_gain)
 			  min_speed_gain = speed_gain;
 		  }
-		  const double lin_speed_2 = min_speed_gain * lin_speed;
+		  const double drive_speed_2 = min_speed_gain * drive_speed;
 		  for (auto &wheel : wheels_)
 		  {
-			wheel.ctrlAxle(lin_speed_2, period);
+			wheel.ctrlAxle(drive_speed_2, period);
 		  }
 		}
 		else
@@ -640,21 +631,19 @@ namespace SWBC
 		  }
 		}
 	  }
-	  else  // The yaw velocity is nonzero.
+	  else  // The steering angle is nonzero.
 	  {
+		// We want the base to steer around a circle whose
+		// centre is somewhere along the body frame y axis.
+		// The steering angle is the angle of the "virtual wheel"
+		// and also the angle swept by of a triangle between
+		// the turning circle centre, the base's centre of rotation,
+		// and the virtual wheel's turning point.
+
+		Vector2d center(0, wheelbase_/2/steer_ang);
+
 		// Align the wheels so that they are tangent to circles centered
 		// at "center".
-
-		Vector2d center;
-		if (lin_speed > 0)
-		{
-		  const Vector2d dir = lin_vel / lin_speed;
-		  center = Vector2d(-dir.y(), dir.x()) * lin_speed / yaw_vel;
-		}
-		else
-		{
-		  center.setZero();
-		}
 
 		std::vector<double> radii;
 		double min_speed_gain = 1;
@@ -683,11 +672,12 @@ namespace SWBC
 			min_speed_gain = speed_gain;
 		}
 
-		const double lin_speed_gain = min_speed_gain * yaw_vel;
+		// The yaw velocity is the drive speed divided by the circle radius
+		const double drive_speed_gain = min_speed_gain * drive_speed / center.y();
 		size_t i = 0;
 		for (auto &wheel : wheels_)
 		{
-		  wheel.ctrlAxle(lin_speed_gain * radii[i++], period);
+		  wheel.ctrlAxle(drive_speed_gain * radii[i++], period);
 		}
 	  }
 	}

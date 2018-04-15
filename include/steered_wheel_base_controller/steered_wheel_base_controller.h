@@ -101,6 +101,7 @@ namespace SWBC
 					  const ros::Duration& period);
 	  void compOdometry(const ros::Time& time, const double inv_delta_t);
 
+		double wheelbase_;
 	  std::vector<Wheel> wheels_;
 
 	  // Linear motion limits
@@ -154,8 +155,8 @@ namespace SWBC
 	const std::string SteeredWheelBaseController::DEF_BASE_LINK = "base_link";
 	const double SteeredWheelBaseController::DEF_CMD_VEL_TIMEOUT = 0.5;
 
-	const double SteeredWheelBaseController::DEF_LIN_SPEED_LIMIT = 1;
-	const double SteeredWheelBaseController::DEF_LIN_ACCEL_LIMIT = 1;
+	const double SteeredWheelBaseController::DEF_LIN_SPEED_LIMIT = 0.7854;
+	const double SteeredWheelBaseController::DEF_LIN_ACCEL_LIMIT = -1;
 	const double SteeredWheelBaseController::DEF_LIN_DECEL_LIMIT = -1;
 
 	const double SteeredWheelBaseController::DEF_YAW_SPEED_LIMIT = 1;
