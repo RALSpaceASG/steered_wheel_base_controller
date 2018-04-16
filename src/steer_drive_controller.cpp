@@ -601,34 +601,22 @@ namespace SWBC
 
 	  if (steer_ang == 0)
 	  {
-		if (abs(drive_speed) > 0)
+		// Point the wheels in the forward direction
+
+		const double theta = 0;
+
+		double min_speed_gain = 1;
+		for (auto &wheel : wheels_)
 		{
-		  // Point the wheels in the forward direction
-
-		  const double theta = 0;
-
-		  double min_speed_gain = 1;
-		  for (auto &wheel : wheels_)
-		  {
-			const double speed_gain =
-			  wheel.ctrlSteering(theta, period, hermite_scale_, hermite_offset_);
-			if (speed_gain < min_speed_gain)
-			  min_speed_gain = speed_gain;
-		  }
-		  const double drive_speed_2 = min_speed_gain * drive_speed;
-		  for (auto &wheel : wheels_)
-		  {
-			wheel.ctrlAxle(drive_speed_2, period);
-		  }
+		  const double speed_gain =
+			wheel.ctrlSteering(theta, period, hermite_scale_, hermite_offset_);
+		  if (speed_gain < min_speed_gain)
+			min_speed_gain = speed_gain;
 		}
-		else
+		const double drive_speed_2 = min_speed_gain * drive_speed;
+		for (auto &wheel : wheels_)
 		{
-		  // Stop wheel rotation.
-		  for (auto &wheel : wheels_)
-		  {
-			wheel.ctrlSteering(period, hermite_scale_, hermite_offset_);
-			wheel.ctrlAxle(0, period);
-		  }
+		  wheel.ctrlAxle(drive_speed_2, period);
 		}
 	  }
 	  else  // The steering angle is nonzero.
