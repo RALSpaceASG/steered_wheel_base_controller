@@ -43,6 +43,7 @@ catkin_package(
 include_directories(include ${catkin_INCLUDE_DIRS})
 
 add_library(${PROJECT_NAME}
+  src/point_turn_controller.cpp
   src/steered_wheel_base_controller.cpp
   src/steer_drive_controller.cpp
   src/joint_base.cpp

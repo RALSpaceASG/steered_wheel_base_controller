@@ -38,4 +38,14 @@ limitations under the License.
       casters).
     </description>
   </class>
+  <class name="SWBC/PointTurnController"
+         type="SWBC::PointTurnController"
+         base_class_type="controller_interface::ControllerBase">
+    <description>
+      PointTurnController is a base controller for mobile robots.
+      It works with bases that have two or more independently-steerable driven
+      wheels and zero or more omnidirectional passive wheels (e.g. swivel
+      casters).
+    </description>
+  </class>
 </library>
